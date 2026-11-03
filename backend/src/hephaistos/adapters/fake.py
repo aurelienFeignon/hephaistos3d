@@ -50,11 +50,33 @@ class FakeCudaError(RuntimeError):
 class FakeParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    steps: int = Field(50, ge=1, le=200)
-    num_gaussians: int = Field(262144, ge=32, le=1048576, multiple_of=32)
-    step_delay_s: float = Field(0.05, ge=0, le=5)
-    inject_failure: Literal["GPU_OOM", "NO_OBJECT", "CUDA_ERROR", "CRASH", "HANG"] | None = None
-    fail_at_step: int = Field(1, ge=1)
+    steps: int = Field(50, ge=1, le=200, title="Pas", json_schema_extra={"x-ui": {"widget": "slider", "order": 1}})
+    num_gaussians: int = Field(
+        262144,
+        ge=32,
+        le=1048576,
+        multiple_of=32,
+        title="Gaussiennes",
+        json_schema_extra={"x-ui": {"widget": "number", "order": 2}},
+    )
+    step_delay_s: float = Field(
+        0.05,
+        ge=0,
+        le=5,
+        title="Durée d'un pas",
+        json_schema_extra={"x-ui": {"widget": "number", "order": 3, "unit": "s", "advanced": True}},
+    )
+    inject_failure: Literal["GPU_OOM", "NO_OBJECT", "CUDA_ERROR", "CRASH", "HANG"] | None = Field(
+        None,
+        title="Échec injecté",
+        json_schema_extra={"x-ui": {"widget": "select", "order": 4, "group": "test", "advanced": True}},
+    )
+    fail_at_step: int = Field(
+        1,
+        ge=1,
+        title="Échec au pas",
+        json_schema_extra={"x-ui": {"widget": "number", "order": 5, "group": "test", "advanced": True}},
+    )
 
 
 class FakeAdapter:

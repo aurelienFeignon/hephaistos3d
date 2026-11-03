@@ -67,16 +67,55 @@ FLUX_VAE = HubRepo(
 MEASURED_PEAK_RESERVED_BYTES = 7_344_226_304
 
 
+# Domaines : docs/specifications.md §3.2 — curseurs de la démo officielle (idol-sdk 4702a7f, demo/app.py),
+# seules valeurs que les éditeurs publient ; défauts : ceux du SDK. Pas de docstring : Pydantic la
+# publierait dans le schéma.
 class IdolParams(BaseModel):
-    """Paramètres d'une génération. Bornes provisoires : leur calibrage est P1.9/P1.10."""
-
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["synthetic", "real"] = "synthetic"  # rendu de synthèse ou photo : décrit l'image
-    steps: int = Field(50, ge=1, le=200)
-    cfg_strength: float = Field(3.0, ge=0.0, le=10.0)
-    rescale_t: float = Field(3.0, gt=0.0, le=10.0)
-    num_gaussians: int = Field(262144, ge=32, le=1048576, multiple_of=32)
+    mode: Literal["synthetic", "real"] = Field(
+        "synthetic",
+        title="Type d'image",
+        description="Rendu ou image générée d'un objet seul, ou photo réelle (recadrage plus large).",
+        json_schema_extra={"x-ui": {"widget": "radio", "order": 1}},
+    )
+    num_gaussians: Literal[65536, 131072, 262144, 524288, 1048576] = Field(
+        262144,
+        title="Gaussiennes",
+        json_schema_extra={"x-ui": {"widget": "select", "order": 2, "advanced": True}},
+    )
+    steps: int = Field(
+        50,
+        ge=10,
+        le=100,
+        title="Pas d'échantillonnage",
+        json_schema_extra={"x-ui": {"widget": "slider", "order": 3, "group": "sampling", "advanced": True}},
+    )
+    cfg_strength: float = Field(
+        3.0,
+        ge=0.0,
+        le=10.0,
+        multiple_of=0.1,
+        title="Guidage",
+        json_schema_extra={"x-ui": {"widget": "slider", "order": 4, "group": "sampling", "advanced": True}},
+    )
+    rescale_t: float = Field(
+        3.0,
+        ge=1.0,
+        le=6.0,
+        multiple_of=0.1,
+        title="Décalage temporel",
+        description="Concentre les pas vers le bruit fort.",
+        json_schema_extra={"x-ui": {"widget": "slider", "order": 5, "group": "sampling", "advanced": True}},
+    )
+    crop_margin: float | None = Field(
+        None,
+        ge=1.0,
+        le=2.5,
+        title="Marge de recadrage",
+        description="Vide : selon le type d'image (1,2 rendu, 1,7 photo).",
+        json_schema_extra={"x-ui": {"widget": "number", "order": 6, "advanced": True}},
+    )
 
 
 class IdolAdapter:
