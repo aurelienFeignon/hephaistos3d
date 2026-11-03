@@ -1,15 +1,18 @@
 """Adaptateur Idol (Sperid Labs) — image 2D → Gaussian Splatting.
 
-État : descripteur, paramètres, préréglages et contrôle d'installation (P1.5). Le chargement et la
-génération (P1.6, P1.7) viendront dans le processus d'inférence, seul endroit où torch est importé.
+Ce module n'importe jamais torch (l'API l'emploie) : descripteur, paramètres, préréglages, contrôle
+d'installation et classement des erreurs. Le chargement importe `runtime`, qui n'existe que dans le
+processus d'inférence.
 """
 
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -145,24 +148,67 @@ class IdolAdapter:
     def vram_required_bytes(self, params: BaseModel) -> int:
         return MEASURED_PEAK_RESERVED_BYTES
 
+    def __init__(self) -> None:
+        self._runtime: Any = None  # IdolRuntime, chargé dans le processus d'inférence seulement
+
     def load(self, ctx: LoadContext) -> None:
-        raise NotImplementedError("chargement d'Idol : P1.6")
+        # Doit précéder le premier import de torch : torch.compile devient inopérant (ADR-0012).
+        if ctx.options.get("exec_mode", "full") == "no_compile":
+            os.environ["TORCHDYNAMO_DISABLE"] = "1"
+        # Poids hors ligne (ADR-0010) : cache HF sous models_root, sauf configuration explicite.
+        os.environ.setdefault("HF_HOME", str(ctx.models_root / "huggingface"))
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        from hephaistos.adapters.idol.runtime import IdolRuntime
+
+        self._runtime = IdolRuntime(ctx)
 
     def generate(self, request: GenerationInput, hooks: RunHooks) -> GenerationOutput:
-        raise NotImplementedError("génération Idol : P1.7")
+        if self._runtime is None:
+            raise AdapterError(ErrorCode.MODEL_UNAVAILABLE, "Idol n'est pas chargé")
+        if not isinstance(request.params, IdolParams):
+            raise AdapterError(
+                ErrorCode.PARAMS_INVALID, f"paramètres {type(request.params).__name__}, attendu IdolParams"
+            )
+        result: GenerationOutput = self._runtime.generate(request, request.params, hooks)
+        return result
 
     def unload(self) -> None:
-        raise NotImplementedError("déchargement d'Idol : P1.6")
+        if self._runtime is not None:
+            self._runtime.unload()
+            self._runtime = None
+
+    def health_check(self) -> None:
+        if self._runtime is not None:
+            self._runtime.health_check()
 
     def classify_error(self, exc: BaseException) -> AdapterError:
-        # Les erreurs CUDA et OOM de torch (P1.8) se classent dans le processus d'inférence.
         if isinstance(exc, AdapterError):
             return exc
         if isinstance(exc, ValidationError):
             return AdapterError(ErrorCode.PARAMS_INVALID, str(exc))
         if isinstance(exc, ValueError) and str(exc).startswith("no object found"):
             return AdapterError(ErrorCode.NO_OBJECT_DETECTED, str(exc))
+        if (code := _torch_error_code(exc)) is not None:
+            return AdapterError(code, f"{type(exc).__name__}: {exc}")
         return AdapterError(ErrorCode.INTERNAL, f"{type(exc).__name__}: {exc}")
+
+
+def _torch_error_code(exc: BaseException) -> ErrorCode | None:
+    """Classes de torch lues dans sys.modules : ce module ne doit jamais importer torch (A1.1).
+    Si torch n'est pas chargé, aucune de ses exceptions n'a pu être levée, sauf par son message."""
+    torch = sys.modules.get("torch")
+    if torch is not None and isinstance(exc, torch.OutOfMemoryError):
+        return ErrorCode.GPU_OOM
+    compile_errors = tuple(
+        getattr(sys.modules.get(module), name, None)
+        for module, name in (("torch._dynamo.exc", "TorchDynamoException"), ("torch._inductor.exc", "InductorError"))
+    )
+    if isinstance(exc, tuple(c for c in compile_errors if isinstance(c, type))):
+        return ErrorCode.COMPILE_ERROR
+    accelerator = getattr(torch, "AcceleratorError", None)
+    if (isinstance(accelerator, type) and isinstance(exc, accelerator)) or "CUDA error" in str(exc):
+        return ErrorCode.CUDA_ERROR
+    return None
 
 
 def _hub_problems(hub: Path, repo: HubRepo) -> list[str]:

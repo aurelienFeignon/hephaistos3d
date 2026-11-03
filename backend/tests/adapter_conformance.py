@@ -51,14 +51,6 @@ class RecordingHooks:
         return [value for kind, value in self.events if kind == "step"]
 
 
-@dataclass
-class ConformanceCase:
-    make_adapter: Callable[[], ModelAdapter]
-    params: dict[str, Any]  # au moins 12 pas, pour l'annulation au pas 10
-    models_root: Path
-    expected_gaussians: int
-
-
 def reference_image(path: Path) -> Path:
     image = Image.new("RGB", (64, 64), (20, 20, 20))
     for x in range(16, 48):
@@ -66,6 +58,15 @@ def reference_image(path: Path) -> Path:
             image.putpixel((x, y), (200, 120, 40))
     image.save(path, "PNG")
     return path
+
+
+@dataclass
+class ConformanceCase:
+    make_adapter: Callable[[], ModelAdapter]
+    params: dict[str, Any]  # au moins 12 pas, pour l'annulation au pas 10
+    models_root: Path
+    expected_gaussians: int
+    make_image: Callable[[Path], Path] = reference_image  # écrit l'image d'entrée à ce chemin
 
 
 class AdapterConformance:
@@ -82,7 +83,7 @@ class AdapterConformance:
         out = tmp_path / "out"
         out.mkdir(parents=True)
         params = adapter.params_model.model_validate(case.params)
-        return GenerationInput(reference_image(tmp_path / "in.png"), params, seed=42, output_dir=out)
+        return GenerationInput(case.make_image(tmp_path / "in.png"), params, seed=42, output_dir=out)
 
     def test_installation_is_reported(self, case: ConformanceCase):
         assert case.make_adapter().check_installation(case.models_root).available

@@ -1,2 +1,6 @@
 def main() -> None:
-    print("Hello from hephaistos!")
+    import sys
+
+    from hephaistos.cli import main as cli_main
+
+    sys.exit(cli_main())

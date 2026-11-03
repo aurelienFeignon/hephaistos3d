@@ -59,6 +59,10 @@ testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
 markers = ["gpu: exige un GPU NVIDIA et les poids installés ; exclu par défaut (-m 'not gpu')"]
 addopts = "-m 'not gpu'"
+filterwarnings = [
+    # Émis par une dépendance d'Idol (diffusers → hf_hub_download) : argument ignoré, sans effet ici.
+    "ignore:The `local_dir_use_symlinks` argument is deprecated:UserWarning",
+]
 
 [tool.ruff]
 line-length = 120
@@ -72,6 +76,11 @@ python_version = "3.12"
 strict = true
 files = ["src"]
 mypy_path = "src"
+
+# torch et le SDK Idol ne sont installés que par l'extra « idol » (image worker), pas en développement.
+[[tool.mypy.overrides]]
+module = ["torch", "torch.*", "idol", "idol.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["plyfile.*", "idol.*", "pynvml.*", "torch.*", "torchvision.*", "PIL.*"]

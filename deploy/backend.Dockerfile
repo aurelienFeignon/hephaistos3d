@@ -30,6 +30,10 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-ins
 COPY backend/src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-editable --extra idol
 
+# Tests sur GPU réel : mêmes dépendances que le worker, plus le groupe dev (pytest).
+FROM builder-worker AS builder-worker-test
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-editable --extra idol
+
 # --------------------------------------------------------------------------- exécution
 FROM ${PYTHON_IMAGE} AS runtime-base
 ENV PATH=/opt/venv/bin:$PATH \
@@ -58,3 +62,10 @@ ENV HF_HOME=/models/huggingface \
     ATTN_BACKEND=sdpa
 USER 1000:1000
 CMD ["python", "-m", "hephaistos.probes.cuda"]
+
+FROM worker AS worker-test
+COPY --from=builder-worker-test /opt/venv /opt/venv
+COPY backend/pyproject.toml ./
+COPY backend/tests ./tests
+# Conteneur en lecture seule : pas de cache pytest.
+CMD ["pytest", "-p", "no:cacheprovider", "-m", "gpu", "-rs", "-v", "tests/gpu"]

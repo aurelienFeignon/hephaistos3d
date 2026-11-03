@@ -11,9 +11,9 @@ import json
 import os
 import signal
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import Literal
 
 import numpy as np
 from PIL import Image
@@ -32,6 +32,7 @@ from hephaistos.adapters.base import (
     Stage,
 )
 from hephaistos.domain.errors import ErrorCode
+from hephaistos.storage.atomic import write_atomically
 
 PLY_PROPERTIES = (
     "x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2", "opacity",
@@ -66,7 +67,7 @@ class FakeParams(BaseModel):
         title="Durée d'un pas",
         json_schema_extra={"x-ui": {"widget": "number", "order": 3, "unit": "s", "advanced": True}},
     )
-    inject_failure: Literal["GPU_OOM", "NO_OBJECT", "CUDA_ERROR", "CRASH", "HANG"] | None = Field(
+    inject_failure: Literal["GPU_OOM", "NO_OBJECT", "CUDA_ERROR", "CRASH", "HANG", "UNHEALTHY"] | None = Field(
         None,
         title="Échec injecté",
         json_schema_extra={"x-ui": {"widget": "select", "order": 4, "group": "test", "advanced": True}},
@@ -98,6 +99,7 @@ class FakeAdapter:
 
     def __init__(self) -> None:
         self._loaded = False
+        self._unhealthy = False  # UNHEALTHY : le job aboutit, le contrôle qui le suit échoue
 
     def check_installation(self, models_root: Path) -> Availability:
         return Availability.ok()
@@ -111,6 +113,10 @@ class FakeAdapter:
     def unload(self) -> None:
         self._loaded = False
 
+    def health_check(self) -> None:
+        if self._unhealthy:
+            raise FakeCudaError("contrôle après job en échec (factice)")
+
     def generate(self, request: GenerationInput, hooks: RunHooks) -> GenerationOutput:
         if not self._loaded:
             raise AdapterError(ErrorCode.MODEL_UNAVAILABLE, "adaptateur non chargé")
@@ -118,6 +124,7 @@ class FakeAdapter:
         if not isinstance(params, FakeParams):
             raise AdapterError(ErrorCode.PARAMS_INVALID, f"paramètres {type(params).__name__}, attendu FakeParams")
         started = time.perf_counter()
+        self._unhealthy = params.inject_failure == "UNHEALTHY"
 
         hooks.stage(Stage.PREPROCESS)
         with Image.open(request.image) as image:
@@ -129,7 +136,7 @@ class FakeAdapter:
         hooks.stage(Stage.SAMPLING)
         for index in range(1, params.steps + 1):
             hooks.check_cancel()
-            if params.inject_failure and index == params.fail_at_step:
+            if params.inject_failure not in (None, "UNHEALTHY") and index == params.fail_at_step:
                 _fail(params.inject_failure)
             time.sleep(params.step_delay_s)
             hooks.step(index, params.steps)
@@ -143,9 +150,9 @@ class FakeAdapter:
         ply = PlyData([PlyElement.describe(splats, "vertex")])
         camera = json.dumps({"yaw": 0.0, "pitch": 0.0, "radius": 3.0, "fov": 30.0}).encode()
         artifacts = {
-            "splat": _write_atomically(out / "splat.ply", ply.write),
-            "preview": _write_atomically(out / "preview.png", lambda f: preview.save(f, "PNG")),
-            "camera": _write_atomically(out / "camera.json", lambda f: f.write(camera)),
+            "splat": write_atomically(out / "splat.ply", ply.write),
+            "preview": write_atomically(out / "preview.png", lambda f: preview.save(f, "PNG")),
+            "camera": write_atomically(out / "camera.json", lambda f: f.write(camera)),
         }
         metrics = {"seconds": time.perf_counter() - started, "gaussians": params.num_gaussians}
         return GenerationOutput(artifacts, metrics)
@@ -193,15 +200,3 @@ def _synthetic_splats(count: int, seed: int) -> np.ndarray:
         data[scale] = -5.0
     data["rot_0"] = 1.0
     return data
-
-
-def _write_atomically(dest: Path, write: Callable[[BinaryIO], object]) -> Path:
-    tmp = dest.with_name(f".{dest.name}.tmp")
-    try:
-        with tmp.open("wb") as handle:
-            write(handle)
-        os.replace(tmp, dest)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-    return dest

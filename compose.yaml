@@ -3,6 +3,7 @@
 #
 #   docker compose --profile probe build worker-probe
 #   docker compose --profile probe run --rm worker-probe python -m hephaistos.probes.cuda
+#   docker compose --profile gpu-test run --rm worker-test      → tests « gpu » (P1)
 #
 # À partir de P2, le service « worker » portera le profil « gpu » (D12) :
 #   docker compose up -d                       → application SANS GPU
@@ -39,6 +40,36 @@ services:
       - ./var/models/huggingface:/models/huggingface:ro
       - ./var/cache:/cache
       - ./var/probe:/data/probe
+      - ./var/refs:/refs:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: "no"
+
+  # Tests sur GPU réel (marqueur « gpu ») : docker compose --profile gpu-test run --rm worker-test
+  worker-test:
+    profiles: ["gpu-test"]
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+      target: worker-test
+    image: hephaistos3d/worker-test:p1
+    <<: *hardening
+    user: "${HEPHAISTOS_UID:-1000}:${HEPHAISTOS_GID:-1000}"
+    network_mode: none
+    shm_size: 1g
+    environment:
+      HEPHAISTOS_MODELS_ROOT: /models
+      HEPHAISTOS_REFS: /refs
+      IDOL_EXEC_MODE: ${IDOL_EXEC_MODE:-full}
+    volumes:
+      - ./var/models/idol:/models/idol:ro
+      - ./var/models/huggingface:/models/huggingface:ro
+      - ./var/cache:/cache
       - ./var/refs:/refs:ro
     deploy:
       resources:
