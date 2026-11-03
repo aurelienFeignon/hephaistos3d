@@ -66,11 +66,11 @@ pas de l'interface.
 Les éditeurs n'ont publié **qu'un** jeu de valeurs (tous les exemples de la démo : 50 pas, guidage
 3,0, décalage 3,0, 262 144 gaussiennes). En conséquence :
 
-| Préréglage | Valeurs initiales | Statut |
+| Préréglage | Valeurs | Statut |
 |---|---|---|
 | **Équilibré** | `steps=50, cfg=3.0, rescale_t=3.0, num_gaussians=262144` | défauts officiels du SDK |
-| **Rapide** | `steps=25, num_gaussians=131072`, le reste par défaut | **hypothèse**, calibrée en P1 |
-| **Qualité** | `steps=50, num_gaussians=1048576`, le reste par défaut | **hypothèse** ; repli à 524 288 si le pic VRAM mesuré dépasse le budget |
+| **Rapide** | `steps=25, num_gaussians=131072`, le reste par défaut | ✅ retenu (ADR-0014) : 51 % du temps d'Équilibré |
+| **Qualité** | `steps=50, num_gaussians=1048576`, le reste par défaut | ✅ retenu (ADR-0014) : pic 7 624 Mio, budget 10 691 ; repli inutile |
 
 Critère de calibrage (P1) : sur les images de référence, Rapide ≤ 60 % du temps d'Équilibré ;
 Qualité tient sous `VRAM totale − 1,5 Go`. Les valeurs retenues et leurs mesures sont consignées

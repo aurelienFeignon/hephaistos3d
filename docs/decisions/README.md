@@ -15,6 +15,7 @@
 | [0011](0011-partage-du-gpu-sans-preemption.md) | Partage du GPU : contrôle à l'admission, sans préemption | Accepté (2026-11-03, D2) |
 | [0012](0012-modes-d-execution-idol.md) | Modes d'exécution d'Idol | Accepté (2026-11-02, ajustement 5) ; défaut fixé après G0.5 |
 | [0013](0013-erreurs-non-classees-non-relancees.md) | Erreurs non classées : diagnostic avant relance | Accepté (2026-11-02, D8) |
+| [0014](0014-valeurs-des-preselections.md) | Valeurs des préréglages d'Idol | Accepté (2026-11-03, P1.10) |
 
 Format : contexte, décision, conséquences, alternatives. Un ADR accepté ne se modifie plus : on en écrit un nouveau qui le remplace. Les ADR 0003 et 0005 ont été révisés **avant** leur acceptation ; l'ADR 0011 a été réécrit avant tout commit, le 2026-11-03, quand la préemption essayée en P0 a été abandonnée.
 

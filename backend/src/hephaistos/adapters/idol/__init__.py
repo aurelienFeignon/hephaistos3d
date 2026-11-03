@@ -66,8 +66,10 @@ FLUX_VAE = HubRepo(
     ("vae/config.json", "vae/diffusion_pytorch_model.safetensors"),
 )
 
-# max_memory_reserved mesuré au Gate P0 (RTX 5070, mode full), à 262 144 comme à 1 048 576 gaussiennes.
-MEASURED_PEAK_RESERVED_BYTES = 7_344_226_304
+# Pic du processus d'inférence mesuré par NVML (P1.10, ADR-0014, RTX 5070, mode full) : contexte CUDA
+# et noyaux compilés compris, que max_memory_reserved (6,84 Gio) ne voit pas. Identique pour les trois
+# préréglages : le pic vient des poids et de l'échantillonnage, pas du nombre de gaussiennes.
+MEASURED_PEAK_BYTES = 7624 * 1024 * 1024
 
 
 # Domaines : docs/specifications.md §3.2 — curseurs de la démo officielle (idol-sdk 4702a7f, demo/app.py),
@@ -132,7 +134,7 @@ class IdolAdapter:
         gpu=GpuRequirements(min_compute_capability=(8, 0)),  # bf16 (DINOv3) ; seul sm_120 est testé
     )
     params_model: type[BaseModel] = IdolParams
-    # Équilibré = défauts publiés par les éditeurs ; Rapide et Qualité sont des hypothèses (P1.10).
+    # Équilibré = défauts publiés par les éditeurs ; Rapide et Qualité calibrés en P1.10 (ADR-0014).
     presets: Mapping[str, Preset] = {
         "fast": Preset("Rapide", {"steps": 25, "num_gaussians": 131072}),
         "balanced": Preset("Équilibré", {"steps": 50, "cfg_strength": 3.0, "rescale_t": 3.0, "num_gaussians": 262144}),
@@ -146,7 +148,7 @@ class IdolAdapter:
         return Availability.missing(" ; ".join(problems)) if problems else Availability.ok()
 
     def vram_required_bytes(self, params: BaseModel) -> int:
-        return MEASURED_PEAK_RESERVED_BYTES
+        return MEASURED_PEAK_BYTES
 
     def __init__(self) -> None:
         self._runtime: Any = None  # IdolRuntime, chargé dans le processus d'inférence seulement

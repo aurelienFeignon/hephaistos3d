@@ -1,6 +1,6 @@
 # Plan de développement — Hephaistos 3D
 
-> Statut : validé le 2026-11-02 avec ajustements. **P0 : ✅ validé le 2026-11-03 (`docs/gates/P0.md`). P1 : non commencée.** Une phase n'est déclarée terminée que
+> Statut : validé le 2026-11-02 avec ajustements. **P0 : ✅ validé le 2026-11-03 (`docs/gates/P0.md`). P1 : A1.1 → A1.7 et P1.10 démontrés le 2026-11-03 (`docs/gates/P1.md`), validation attendue.** Une phase n'est déclarée terminée que
 > lorsque chacun de ses critères d'acceptation est démontré, preuve à l'appui (sortie de commande,
 > mesure, capture), et consignée dans `docs/gates/Pn.md`.
 

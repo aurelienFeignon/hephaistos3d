@@ -93,3 +93,15 @@ LOCAL_MODELS = Path(__file__).resolve().parents[3] / "var" / "models"
 @pytest.mark.skipif(not LOCAL_MODELS.is_dir(), reason="poids non installés sur cette machine")
 def test_installed_weights_on_this_host_are_available():
     assert IdolAdapter().check_installation(LOCAL_MODELS) == Availability.ok()
+
+
+def test_idol_vram_need_is_the_device_level_measure_and_fits_the_admission_default():
+    # P1.10 : pic mesuré par NVML (contexte CUDA et noyaux compilés compris), identique pour les trois
+    # préréglages. Le seuil d'admission par défaut (.env.example, GPU_MIN_FREE_VRAM_MB) doit le couvrir.
+    from hephaistos.adapters.idol import IdolParams
+
+    mib = 1024 * 1024
+    for num_gaussians in (65536, 262144, 1048576):
+        need = IdolAdapter().vram_required_bytes(IdolParams(num_gaussians=num_gaussians))
+        assert need == 7624 * mib
+        assert need <= 8192 * mib
