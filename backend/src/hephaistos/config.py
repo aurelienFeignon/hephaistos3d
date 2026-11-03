@@ -1,0 +1,80 @@
+"""Configuration validée au démarrage (P2.1, architecture.md §12).
+
+Une valeur invalide arrête le service en nommant la variable telle qu'on l'écrit dans `.env`.
+Référence commentée : `.env.example`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Literal
+
+from pydantic import Field, ValidationError, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+MIB = 1024 * 1024
+
+
+class ConfigError(Exception):
+    """Configuration refusée ; le message nomme chaque variable fautive."""
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(case_sensitive=False, extra="ignore", frozen=True)
+
+    hephaistos_data_dir: Path = Path("/data")
+    hephaistos_models_root: Path = Path("/models")
+
+    gpu_workers: int = Field(1, ge=0)
+    gpu_max_concurrent_jobs: int = Field(1, ge=1)
+    gpu_min_free_vram_mb: int = Field(8192, ge=0)
+    gpu_vram_limit_mb: int = Field(0, ge=0)  # 0 = aucun plafond ; ≤ VRAM totale, vérifié au démarrage du worker
+    gpu_wait_timeout_seconds: int = Field(0, ge=0)  # 0 = attendre indéfiniment
+    model_idle_unload_seconds: int = Field(900, ge=0)  # 0 = jamais
+    dispatch_paused: bool = False
+
+    idol_exec_mode: Literal["full", "no_compile", "eager"] = "full"
+    idol_dinov3_dtype: Literal["bf16", "fp32"] = "bf16"
+
+    job_max_retries: int = Field(3, ge=0, le=10)
+    job_retry_backoff_seconds: int = Field(30, ge=1, le=3600)
+    job_retry_backoff_max_seconds: int = 900
+    job_lease_seconds: int = Field(60, ge=15, le=600)
+    job_timeout_seconds: int = Field(1800, gt=0)
+    worker_shutdown_grace_seconds: int = Field(90, gt=0)  # < stop_grace_period de Compose
+
+    storage_retention_days: int = Field(30, ge=0)
+    storage_cleanup_interval_hours: int = Field(24, ge=1, le=168)
+    upload_max_bytes: int = Field(20_971_520, ge=MIB, le=100 * MIB)
+    upload_max_pixels: int = Field(40_000_000, gt=0)
+
+    enable_fake_adapter: bool = False
+
+    @model_validator(mode="after")
+    def _backoff_ceiling(self) -> Settings:
+        if self.job_retry_backoff_max_seconds < self.job_retry_backoff_seconds:
+            raise ValueError(
+                f"JOB_RETRY_BACKOFF_MAX_SECONDS ({self.job_retry_backoff_max_seconds}) doit être "
+                f"≥ JOB_RETRY_BACKOFF_SECONDS ({self.job_retry_backoff_seconds})"
+            )
+        return self
+
+    def warnings(self) -> list[str]:
+        """Réglages admis mais probablement involontaires."""
+        if self.gpu_max_concurrent_jobs > self.gpu_workers:
+            return [
+                f"GPU_MAX_CONCURRENT_JOBS ({self.gpu_max_concurrent_jobs}) > GPU_WORKERS ({self.gpu_workers}) : "
+                "certains jobs ne trouveront jamais de worker"
+            ]
+        return []
+
+
+def load_settings() -> Settings:
+    try:
+        return Settings()
+    except ValidationError as exc:
+        lines = []
+        for error in exc.errors():
+            variable = ".".join(str(part) for part in error["loc"]).upper()
+            lines.append(f"{variable} : {error['msg']}" if variable else error["msg"])
+        raise ConfigError("configuration invalide\n  " + "\n  ".join(lines)) from exc
