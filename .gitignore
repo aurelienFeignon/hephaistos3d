@@ -1,0 +1,27 @@
+# Données persistantes et secrets (D4)
+/var/
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+
+# Sorties de sondes et poids
+*.safetensors
+/probe-out/
+
+# Éditeurs / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Notes propres à la machine de l'exploitant (jamais publiées)
+/local/
+/nextPrompt.md

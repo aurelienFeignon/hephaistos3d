@@ -1,0 +1,78 @@
+[project]
+name = "hephaistos"
+version = "0.1.0"
+description = "Hephaistos 3D — image 2D vers objet 3D (Gaussian Splatting), auto-hébergé"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi>=0.162.0",
+    "numpy>=2.5.4",
+    "nvidia-ml-py>=13.615.71",
+    "pillow>=13.0.0",
+    "plyfile>=1.1.5",
+    "pydantic>=2.14.2",
+    "pydantic-settings>=2.16.2",
+    "python-multipart>=0.0.33",
+    "python-ulid>=4.1.0",
+    "sqlalchemy>=2.1.6",
+    "structlog>=26.1.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+hephaistos = "hephaistos:main"
+
+[project.optional-dependencies]
+idol = [
+    "idol",
+    "torch>=2.14.1,<2.15",
+    "torchvision>=0.29.1,<0.30",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "ruff>=0.17.3",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
+idol = { git = "https://github.com/speridlabs/idol-sdk", rev = "4702a7f00850e34b6e83a2170cc123c3e9570744" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+markers = ["gpu: exige un GPU NVIDIA et les poids installés ; exclu par défaut (-m 'not gpu')"]
+addopts = "-m 'not gpu'"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["plyfile.*", "idol.*", "pynvml.*", "torch.*", "torchvision.*", "PIL.*"]
+ignore_missing_imports = true

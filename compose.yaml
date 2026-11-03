@@ -1,0 +1,50 @@
+# Hephaistos 3D — état P0 : seul le service de sonde existe, et il ne démarre que sur demande
+# (profil « probe »). Il n'a AUCUN accès réseau (G0.3) et ne publie aucun port.
+#
+#   docker compose --profile probe build worker-probe
+#   docker compose --profile probe run --rm worker-probe python -m hephaistos.probes.cuda
+#
+# À partir de P2, le service « worker » portera le profil « gpu » (D12) :
+#   docker compose up -d                       → application SANS GPU
+#   docker compose --profile gpu up -d worker  → active la génération
+#   docker compose stop worker                 → rend toute la VRAM
+
+name: hephaistos3d
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:size=2g
+
+services:
+  worker-probe:
+    profiles: ["probe"]
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+      target: worker
+    image: hephaistos3d/worker:p0
+    <<: *hardening
+    user: "${HEPHAISTOS_UID:-1000}:${HEPHAISTOS_GID:-1000}"
+    network_mode: none
+    shm_size: 1g
+    environment:
+      GPU_MIN_FREE_VRAM_MB: ${GPU_MIN_FREE_VRAM_MB:-8192}
+      GPU_VRAM_LIMIT_MB: ${GPU_VRAM_LIMIT_MB:-0}
+      IDOL_EXEC_MODE: ${IDOL_EXEC_MODE:-full}
+    volumes:
+      - ./var/models/idol:/models/idol:ro
+      - ./var/models/huggingface:/models/huggingface:ro
+      - ./var/cache:/cache
+      - ./var/probe:/data/probe
+      - ./var/refs:/refs:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: "no"
