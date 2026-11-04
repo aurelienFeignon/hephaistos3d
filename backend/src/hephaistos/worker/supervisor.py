@@ -421,9 +421,16 @@ class Supervisor:
             self._publish()
             return
         if self._degraded:
-            self.state = "DEGRADED"
-            self._publish()
-            return
+            with Session(self.broker.engine) as session:
+                system = session.get(SystemState, 1)
+                resumed = system is not None and not system.dispatch_paused
+            if not resumed:
+                self.state = "DEGRADED"
+                self._publish()
+                return
+            # An explicit persisted resume starts a fresh crash window.
+            self._degraded = False
+            self._deaths = []
         if (
             self.child
             and self.settings.model_idle_unload_seconds > 0

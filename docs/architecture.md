@@ -147,6 +147,16 @@ Implémentation P2.5 :
   l'effacement des sorties abandonnées et les métriques worker appartiennent à P2.6/P2.7.
   Le heartbeat valide le bail et renvoie l'indicateur d'annulation coopérative.
 
+P2.6b : `system/dispatch.py` gère la ligne singleton et les mises à jour sérialisées
+(`BEGIN IMMEDIATE`). Un GET d'une ligne existante reste une lecture WAL sans verrou d'écriture.
+La première initialisation copie `DISPATCH_PAUSED` (`paused_by=config` si vrai) ; les démarrages
+suivants préservent les décisions enregistrées. Les PUT manuels sont idempotents et ne modifient
+aucun job ni bail. Les horodatages sont normalisés en UTC avant stockage et dans les réponses.
+
+L'application factory `api/app.py:create_app` expose GET/PUT `/api/v1/system/dispatch` et
+`/api/v1/openapi.json`, avec `current_principal`, validation stricte et erreurs RFC 9457.
+L'API complète et les images Compose restent à intégrer en P2.8/P2.11.
+
 ### 4.3 Relances (D8)
 
 - `JOB_MAX_RETRIES` relances **automatiques** au plus, **uniquement** pour les codes d'erreur
@@ -293,8 +303,9 @@ Implémentation P2.6 : `python -m hephaistos.worker.supervisor` (schéma déjà 
   consommation de budget. Un bail perdu tue l'enfant et interdit toute publication.
 - Le délai total `JOB_TIMEOUT_SECONDS` inclut le chargement. CUDA_ERROR, crash ou timeout
   remplacent l'enfant ; trois morts sur dix minutes placent le worker `DEGRADED` et suspendent
-  la distribution (`paused_by=system`). Une action manuelle, actuellement un redémarrage du
-  worker puis une reprise de distribution, est nécessaire.
+  la distribution (`paused_by=system`). Une reprise explicite via
+  `PUT /api/v1/system/dispatch` remet aussi à zéro la fenêtre de morts des superviseurs
+  dégradés lorsqu’ils observent la reprise ; aucun redémarrage n’est requis.
 - Les erreurs classées du chargement traversent le protocole sans perdre leur code ; les
   erreurs inconnues conservent la trace et deviennent `INTERNAL`, avec diagnostic obligatoire.
 - Validation CPU : GPU simulé, vrais enfants Fake, vrai SIGTERM et tests par mutation.

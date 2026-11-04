@@ -20,6 +20,28 @@
 | GET | `/system/dispatch` | état de la distribution |
 | PUT | `/system/dispatch` | `{"paused": bool, "reason": str?}` — suspend ou reprend ; la génération en cours va toujours à son terme |
 
+`GET` et `PUT /system/dispatch` renvoient le même objet (200) :
+
+```json
+{"paused": true, "paused_by": "user", "reason": "maintenance", "since": "2026-01-01T12:00:00Z"}
+```
+
+- `paused` est un booléen strict ; `reason` est facultatif ou null, limité à 1 000 caractères,
+  et débarrassé des espaces en début/fin. Une raison vide devient null. Les champs inconnus
+  sont refusés (422 `VALIDATION_ERROR`, `application/problem+json`).
+- Une pause manuelle enregistre `paused_by=user`. À la reprise, `paused_by`, `reason` et `since`
+  redeviennent null ; une raison fournie avec `paused=false` est ignorée. Répéter la même
+  commande ne change pas sa date.
+- L'état est persisté. `DISPATCH_PAUSED` initialise la ligne seulement si elle n'existe pas :
+  une reprise manuelle survit donc à un redémarrage, même si cette variable reste vraie.
+- Une suspension ne modifie ni les baux ni les jobs en cours. Une reprise explicite permet aussi
+  aux superviseurs `DEGRADED` de remettre à zéro leur fenêtre de morts et de reprendre les prises.
+  Une nouvelle panne peut de nouveau suspendre la distribution.
+
+Implémenté en P2.6b : application factory `hephaistos.api.app:create_app`, GET/PUT dispatch,
+validation et dépendance `current_principal` (principal unique local). Les autres routes de ce
+contrat sont encore à implémenter en P2.8 ; aucune migration automatique au démarrage.
+
 ```json
 {
   "version": "0.1.0",
