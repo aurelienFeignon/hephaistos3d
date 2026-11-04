@@ -27,6 +27,7 @@ contrainte `CHECK`.
 | `progress_stage` | texte, nullable | `preprocess` \| `encode` \| `sampling` \| `decode` \| `export` |
 | `progress_current`, `progress_total` | entiers, nullables | renseignés seulement pendant `sampling` |
 | `progress_updated_at` | horodatage | |
+| `next_attempt_trigger` | enum, défaut `INITIAL` | motif durable de la prochaine tentative : `INITIAL`, `AUTO_RETRY`, `MANUAL_RETRY`, `RECOVERY`, `RESUME` |
 | `attempt_count` | entier | tentatives commencées depuis la dernière (re)mise en file manuelle |
 | `max_retries` | entier | copie de `JOB_MAX_RETRIES` à la mise en file |
 | `not_before` | horodatage, nullable | relance différée (backoff) |
@@ -41,6 +42,11 @@ contrainte `CHECK`.
 
 Index : `(status, not_before, created_at)` pour la prise ; `(finished_at)` pour la rétention ;
 `(lease_expires_at)` pour la reprise.
+
+`next_attempt_trigger` est écrit lors de la (re)mise en file et copié vers `attempt.trigger`
+à la prise. Il évite de déduire à tort `RESUME` de la dernière tentative `INTERRUPTED`
+après une annulation puis une relance manuelle. Migration additive `20261104_queue_trigger` ;
+les lignes antérieures reçoivent `INITIAL` (l'orchestration n'était pas encore implémentée).
 
 Durée affichée : `finished_at − started_at` (temps mur, relances comprises) ; la durée de chaque
 tentative est dans `attempt`.

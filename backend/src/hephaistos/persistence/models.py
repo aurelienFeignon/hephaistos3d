@@ -37,6 +37,10 @@ def enum_type(name: str, *values: str) -> Enum:
 class Generation(Base):
     __tablename__ = "generation"
     __table_args__ = (
+        CheckConstraint(
+            "next_attempt_trigger IN ('INITIAL', 'AUTO_RETRY', 'MANUAL_RETRY', 'RECOVERY', 'RESUME')",
+            name="ck_generation_next_attempt_trigger",
+        ),
         Index("ix_generation_claim", "status", "not_before", "created_at"),
         Index("ix_generation_finished_at", "finished_at"),
         Index("ix_generation_lease_expires_at", "lease_expires_at"),
@@ -48,6 +52,7 @@ class Generation(Base):
     status: Mapped[str] = mapped_column(
         enum_type("generation_status", "PENDING", "QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED")
     )
+    next_attempt_trigger: Mapped[str] = mapped_column(String(16), default="INITIAL", server_default="INITIAL")
     preset: Mapped[str | None] = mapped_column(Text)
     params: Mapped[dict[str, Any]] = mapped_column(JSON)
     seed: Mapped[int] = mapped_column(BigInteger)

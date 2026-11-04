@@ -117,6 +117,33 @@ créneau GPU, reprise des jobs abandonnés.
   sinon il est interrompu ; retour en `QUEUED` sans consommer le budget (`INTERRUPTED`).
 - SQLite : WAL, `busy_timeout`, `foreign_keys=ON`, fichier sur volume local.
 
+Implémentation P2.5 :
+
+- `persistence/database.py` construit `/data/db/hephaistos.sqlite3` depuis
+  `HEPHAISTOS_DATA_DIR` et configure WAL, `foreign_keys=ON` et `busy_timeout=5000` sur chaque
+  connexion. Aucune création de schéma implicite. `alembic upgrade head` utilise ce répertoire
+  par défaut ; une URL fournie dans la configuration Alembic reste prioritaire.
+- `queue/broker.py` expose `JobBroker` : `claim`, `heartbeat`, `report_progress`, `complete`,
+  `fail`, `interrupt`, `recover_expired`, `retry`, `cancel`, `finish_cancel`.
+  Chaque écriture prend le verrou SQLite par `BEGIN IMMEDIATE`, puis applique un
+  `UPDATE ... WHERE status = ... AND deleting_at IS NULL`.
+- La prise filtre les modèles disponibles, les délais et les suppressions ; elle respecte la
+  suspension persistée (ou `DISPATCH_PAUSED` si la ligne système n'existe pas encore).
+  Les baux expirés occupent toujours leur créneau jusqu'à leur reprise explicite.
+- Le jeton `Lease` comprend le worker et l'ULID de tentative. Toute écriture issue du worker
+  exige un bail encore valide et une tentative ouverte appartenant à la génération et au worker.
+  Réutiliser le même nom de worker n'autorise jamais une ancienne tentative à écrire.
+- `complete` valide les trois descriptions d'artefacts, prépare et flush les écritures SQL,
+  puis appelle la promotion sous le verrou d'écriture avant le commit. Une erreur SQL détectable
+  avant commit ne publie donc rien ; une erreur de promotion annule les écritures SQL.
+  Les lecteurs WAL voient encore `RUNNING` jusqu'au commit.
+- Le disque et SQLite ne partagent pas de transaction : un arrêt brutal après promotion et avant
+  commit peut laisser un résultat non référencé. Le janitor/superviseur devra le réconcilier sous
+  contrôle du bail avant une nouvelle promotion ; ce cas reste à intégrer en P2.6/P2.7.
+- `recover_expired` et `interrupt` sont des primitives transactionnelles ; leur déclenchement,
+  l'effacement des sorties abandonnées et les métriques worker appartiennent à P2.6/P2.7.
+  Le heartbeat valide le bail et renvoie l'indicateur d'annulation coopérative.
+
 ### 4.3 Relances (D8)
 
 - `JOB_MAX_RETRIES` relances **automatiques** au plus, **uniquement** pour les codes d'erreur
