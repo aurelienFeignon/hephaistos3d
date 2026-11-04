@@ -219,6 +219,10 @@ class JobBroker:
             generation, attempt = self._owned(session, lease, now)
             if generation.cancel_requested_at is not None:
                 raise LeaseLost("Cancellation requested; acknowledge before completing")
+            if session.scalar(
+                select(func.count()).select_from(Artifact).where(Artifact.generation_id == generation.id)
+            ):
+                raise ValueError("Generation already has authoritative artifacts")
             for artifact in artifacts:
                 session.add(
                     Artifact(
@@ -333,6 +337,11 @@ class JobBroker:
             )
             if attempt is None:
                 raise LeaseLost("RUNNING generation has no open attempt")
+            if generation.cancel_requested_at is not None:
+                self._write(session, generation, status="CANCELLED", finished_at=utc(now), **self._clear_lease())
+                attempt.outcome = "CANCELLED"
+                attempt.finished_at = utc(now)
+                return True
             self._failure(
                 session,
                 generation,
@@ -384,3 +393,42 @@ class JobBroker:
             self._write(session, generation, status="CANCELLED", finished_at=utc(now), **self._clear_lease())
             attempt.outcome = "CANCELLED"
             attempt.finished_at = utc(now)
+
+    def expire_gpu_wait(self, model_ids: Set[str], *, now: datetime) -> int:
+        """Fail eligible queued GPU waits without creating an execution attempt."""
+        if self.settings.gpu_wait_timeout_seconds == 0 or not model_ids:
+            return 0
+        with self._transaction() as session:
+            state = session.get(SystemState, 1)
+            paused = state.dispatch_paused if state else self.settings.dispatch_paused
+            if paused:
+                return 0
+            cutoff = utc(now) - timedelta(seconds=self.settings.gpu_wait_timeout_seconds)
+            generations = session.scalars(
+                select(Generation).where(
+                    Generation.status == "QUEUED",
+                    Generation.deleting_at.is_(None),
+                    Generation.model_id.in_(model_ids),
+                    Generation.queued_at <= cutoff,
+                    Generation.not_before.is_(None) | (Generation.not_before <= utc(now)),
+                )
+            ).all()
+            for generation in generations:
+                self._write(
+                    session,
+                    generation,
+                    status="FAILED",
+                    finished_at=utc(now),
+                    error_code=ErrorCode.GPU_UNAVAILABLE.value,
+                    error_message="GPU wait timeout exceeded",
+                    needs_diagnosis=False,
+                )
+            return len(generations)
+
+    def record_metrics(
+        self, lease: Lease, *, now: datetime, stage_durations_ms: dict[str, int], peak_vram_bytes: int | None = None
+    ) -> None:
+        with self._transaction() as session:
+            _, attempt = self._owned(session, lease, now)
+            attempt.stage_durations_ms = stage_durations_ms
+            attempt.peak_vram_bytes = peak_vram_bytes

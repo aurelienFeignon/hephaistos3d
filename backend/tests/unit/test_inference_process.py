@@ -132,3 +132,21 @@ def test_failed_health_check_after_a_job_exits_75(process, tmp_path):
     outcome = process.generate(request(tmp_path, inject_failure="UNHEALTHY"), timeout_s=60)
     assert isinstance(outcome, Succeeded)
     assert process.wait_exit(timeout_s=30) == EXIT_CUDA_COMPROMISED
+
+
+def test_unknown_adapter_load_preserves_classification(tmp_path):
+    from hephaistos.worker.inference import InferenceLoadError
+
+    process = InferenceProcess("missing", models_root=tmp_path)
+    with pytest.raises(InferenceLoadError) as failure:
+        process.start(timeout_s=10)
+    assert failure.value.code is ErrorCode.MODEL_UNAVAILABLE
+    assert not process.is_alive()
+
+
+def test_kill_before_start_prevents_late_child_creation(tmp_path):
+    process = InferenceProcess("fake", models_root=tmp_path)
+    process.kill()
+    with pytest.raises(RuntimeError):
+        process.start(timeout_s=10)
+    assert not process.is_alive()

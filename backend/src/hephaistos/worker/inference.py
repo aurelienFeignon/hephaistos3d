@@ -11,7 +11,9 @@ Issue d'un job, côté superviseur : `Succeeded`, `Failed` (code classé, relan�
 from __future__ import annotations
 
 import multiprocessing as mp
+import threading
 import time
+import traceback
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from multiprocessing.connection import Connection
@@ -60,6 +62,7 @@ class Succeeded:
 class Failed:
     code: ErrorCode
     message: str
+    error_trace: str | None = None
 
     @property
     def retryable(self) -> bool:
@@ -82,6 +85,8 @@ class _Loaded:
 @dataclass(frozen=True)
 class _LoadFailed:
     message: str
+    code: ErrorCode = ErrorCode.MODEL_UNAVAILABLE
+    error_trace: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,13 @@ class _Shutdown:
 # --------------------------------------------------------------------------------------- superviseur
 
 
+class InferenceLoadError(RuntimeError):
+    def __init__(self, message: str, code: ErrorCode, error_trace: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.error_trace = error_trace
+
+
 class InferenceProcess:
     """Un enfant d'inférence : chargé une fois, conservé entre les jobs, terminé à la demande."""
 
@@ -104,6 +116,7 @@ class InferenceProcess:
         self.adapter_id = adapter_id
         self.models_root = models_root
         self.options = dict(options or {})
+        self._stop_requested = threading.Event()
         self._ctx = mp.get_context("spawn")
         self._process: Any = None
         self._conn: Connection | None = None
@@ -118,6 +131,8 @@ class InferenceProcess:
 
     def start(self, timeout_s: float = 900.0) -> float:
         """Crée l'enfant et attend le chargement du modèle ; rend sa durée. Lève RuntimeError sinon."""
+        if self._stop_requested.is_set():
+            raise InferenceLoadError("Process has been stopped", ErrorCode.WORKER_CRASH)
         parent, child = self._ctx.Pipe(duplex=True)
         self._cancel = self._ctx.Event()
         args = (self.adapter_id, self.models_root, self.options, child, self._cancel)
@@ -125,12 +140,21 @@ class InferenceProcess:
         self._process.start()
         child.close()
         self._conn = parent
+        if self._stop_requested.is_set():
+            self.kill()
+            raise InferenceLoadError("Process stopped during launch", ErrorCode.WORKER_CRASH)
         message = self._receive(time.monotonic() + timeout_s)
         if isinstance(message, _Loaded):
             return message.seconds
         self.kill()
         reason = message.message if isinstance(message, _LoadFailed) else "aucune réponse au chargement"
-        raise RuntimeError(f"chargement de {self.adapter_id!r} impossible : {reason}")
+        code = (
+            message.code
+            if isinstance(message, _LoadFailed)
+            else (ErrorCode.TIMEOUT if message is _TIMED_OUT else ErrorCode.WORKER_CRASH)
+        )
+        trace = message.error_trace if isinstance(message, _LoadFailed) else None
+        raise InferenceLoadError(f"chargement de {self.adapter_id!r} impossible : {reason}", code, trace)
 
     def generate(
         self, request: GenerationInput, *, on_event: Callable[[ProgressEvent], None] | None = None, timeout_s: float
@@ -138,7 +162,10 @@ class InferenceProcess:
         if self._conn is None or self._cancel is None:
             raise RuntimeError("processus d'inférence non démarré : start() d'abord")
         self._cancel.clear()
-        self._conn.send(_Generate(request))
+        try:
+            self._conn.send(_Generate(request))
+        except (BrokenPipeError, OSError):
+            return Failed(ErrorCode.WORKER_CRASH, "Inference process died before accepting the job")
         deadline = time.monotonic() + timeout_s
         while True:
             message = self._receive(deadline)
@@ -163,7 +190,7 @@ class InferenceProcess:
             self._cancel.set()
 
     def wait_exit(self, timeout_s: float) -> int | None:
-        if self._process is None:
+        if self._process is None or self._process.pid is None:
             return None
         self._process.join(timeout_s)
         return None if self._process.is_alive() else self._process.exitcode
@@ -181,6 +208,7 @@ class InferenceProcess:
         return code
 
     def kill(self) -> None:
+        self._stop_requested.set()
         if self.is_alive():
             self._process.kill()
             self._process.join(10)
@@ -241,7 +269,8 @@ def _child_main(adapter_id: str, models_root: Path, options: dict[str, Any], con
     try:
         adapter.load(LoadContext(models_root=models_root, options=options))
     except Exception as exc:  # noqa: BLE001 — rapporté au superviseur, qui décide
-        conn.send(_LoadFailed(adapter.classify_error(exc).message))
+        error = adapter.classify_error(exc)
+        conn.send(_LoadFailed(error.message, error.code, traceback.format_exc()))
         sys.exit(1)
     conn.send(_Loaded(time.perf_counter() - started))
 
@@ -259,7 +288,7 @@ def _child_main(adapter_id: str, models_root: Path, options: dict[str, Any], con
             outcome = Cancelled()
         except Exception as exc:  # noqa: BLE001 — toute erreur est classée ; l'inconnue devient INTERNAL
             error = adapter.classify_error(exc)
-            outcome = Failed(error.code, error.message)
+            outcome = Failed(error.code, error.message, traceback.format_exc())
         consecutive_oom = (
             consecutive_oom + 1 if isinstance(outcome, Failed) and outcome.code is ErrorCode.GPU_OOM else 0
         )

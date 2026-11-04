@@ -139,7 +139,10 @@ Implémentation P2.5 :
   Les lecteurs WAL voient encore `RUNNING` jusqu'au commit.
 - Le disque et SQLite ne partagent pas de transaction : un arrêt brutal après promotion et avant
   commit peut laisser un résultat non référencé. Le janitor/superviseur devra le réconcilier sous
-  contrôle du bail avant une nouvelle promotion ; ce cas reste à intégrer en P2.6/P2.7.
+  contrôle du bail avant une nouvelle promotion. P2.6 le fait lors du succès suivant : le broker
+  refuse des artefacts déjà référencés, puis le superviseur remplace les résultats orphelins
+  sous le même verrou et avec un bail valide. Le janitor gardera le nettoyage hors nouvelle
+  génération (P2.7).
 - `recover_expired` et `interrupt` sont des primitives transactionnelles ; leur déclenchement,
   l'effacement des sorties abandonnées et les métriques worker appartiennent à P2.6/P2.7.
   Le heartbeat valide le bail et renvoie l'indicateur d'annulation coopérative.
@@ -264,6 +267,38 @@ Trois niveaux, du plus léger au plus radical :
 | Contrôle après chaque job | l'enfant fait `torch.cuda.synchronize()` + une opération minime ; échec → sortie 75 |
 | ≥ 3 morts d'enfant en 10 min | worker `DEGRADED` : plus de prise, distribution suspendue (`paused_by=system`), action manuelle requise |
 | GPU absent au démarrage (eGPU) | état `NO_GPU`, nouvel essai toutes les 30 s, aucune boucle de crash |
+
+Implémentation P2.6 : `python -m hephaistos.worker.supervisor` (schéma déjà migré).
+
+- Le superviseur utilise `InferenceProcess` dans un thread de pilotage ; les calculs restent
+  exclusivement dans l'enfant `spawn`. La boucle principale renouvelle les baux à `/3`, même
+  pendant le chargement ou une étape silencieuse, et publie l'état du worker.
+- Pas d'enfant avant une prise et un contrôle NVML positif. GPU absent : `NO_GPU`, nouvel essai
+  après 30 s. Limite mémoire supérieure au total : erreur `GPU_VRAM_LIMIT_MB` avant la prise.
+  Le contrôle de disponibilité filtre les adaptateurs ; le modèle/version et les paramètres
+  figés sont vérifiés avant lancement.
+- Les jobs successifs réutilisent l'enfant chargé. L'inactivité le termine (0 = déchargement
+  automatique désactivé). Si la VRAM libre passe sous le seuil entre deux jobs, l'enfant au
+  repos est aussi terminé avant une prochaine admission ; aucune interruption en cours de job.
+- `GPU_WAIT_TIMEOUT_SECONDS` clôt seulement des jobs `QUEUED` éligibles pour les adaptateurs
+  disponibles, hors suspension, sans créer de tentative. Le délai se mesure depuis `queued_at`.
+- Les événements sont associés à l'ULID de tentative pour ignorer les messages tardifs d'un
+  ancien enfant. Durées d'étape et pic alloué (si publié par l'adaptateur) vont dans `attempt` ;
+  les artefacts reçoivent taille et SHA-256 calculés depuis les fichiers attendus.
+- Une annulation est transmise au prochain heartbeat. Sans réponse après
+  `WORKER_SHUTDOWN_GRACE_SECONDS`, l'enfant est tué et la tentative devient `CANCELLED`.
+  Un bail expiré avec annulation demandée est également clôturé `CANCELLED` lors de la reprise.
+- `SIGTERM`/`SIGINT` arrêtent les prises et laissent le job finir pendant le délai de grâce.
+  À l'échéance, l'enfant est tué, la tentative passe `INTERRUPTED` et revient en file sans
+  consommation de budget. Un bail perdu tue l'enfant et interdit toute publication.
+- Le délai total `JOB_TIMEOUT_SECONDS` inclut le chargement. CUDA_ERROR, crash ou timeout
+  remplacent l'enfant ; trois morts sur dix minutes placent le worker `DEGRADED` et suspendent
+  la distribution (`paused_by=system`). Une action manuelle, actuellement un redémarrage du
+  worker puis une reprise de distribution, est nécessaire.
+- Les erreurs classées du chargement traversent le protocole sans perdre leur code ; les
+  erreurs inconnues conservent la trace et deviennent `INTERNAL`, avec diagnostic obligatoire.
+- Validation CPU : GPU simulé, vrais enfants Fake, vrai SIGTERM et tests par mutation.
+  Validation GPU et intégration Compose restent à démontrer avec accord explicite.
 
 ### 5.7 Modes d'exécution (ajustement 5)
 

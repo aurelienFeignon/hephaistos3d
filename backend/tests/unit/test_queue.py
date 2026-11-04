@@ -459,3 +459,12 @@ def test_sql_failure_prevents_file_promotion(queue):
     callback.assert_not_called()
     assert get(queue, identifier).status == "RUNNING"
     assert attempts(queue)[0].outcome is None
+
+
+def test_expired_lease_with_cancellation_is_not_requeued(queue):
+    identifier = job(queue)
+    claim(queue)
+    queue.cancel(identifier, now=NOW)
+    assert queue.recover_expired(identifier, now=NOW + timedelta(seconds=60))
+    assert get(queue, identifier).status == "CANCELLED"
+    assert attempts(queue)[0].outcome == "CANCELLED"
