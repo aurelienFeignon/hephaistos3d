@@ -333,9 +333,30 @@ injectables (`GPU_OOM`, `NO_OBJECT`, `CUDA_ERROR`, `CRASH`, `HANG`).
 | `var/models` | `/models` | `idol/`, `huggingface/` | — | **ro** | — |
 | `var/cache` | `/cache` | `torchinductor/`, `triton/` | — | rw | — |
 
-- Écriture dans `tmp/` puis `rename` ; sorties promues au seul succès.
+- Écriture dans `tmp/` puis publication du répertoire complet ; sorties promues au seul succès.
+  Si les montages permettent le renommage, un seul `rename` suffit. Sur `EXDEV` (montages
+  distincts), copie dans un répertoire caché du volume de destination, puis renommage local.
+  En cas d'échec de copie, le répertoire caché est nettoyé et aucune sortie n'est publiée.
+  Après succès inter-montages, la copie de travail dans `tmp/` reste à nettoyer par le janitor.
+  Un arrêt brutal peut aussi laisser un répertoire caché : à traiter comme un orphelin (> 24 h).
+- P2.4 : `storage/local.py` construit les chemins et promeut exactement les fichiers attendus
+  (`original.jpg/png/webp` + `input.png`, ou `splat.ply` + `preview.png` + `camera.json`).
+  Chaque tentative possède son propre `tmp/<gen_id>/<attempt_id>/` ; les uploads utilisent
+  `tmp/<gen_id>/upload/`. Une destination existante est refusée.
+  Les liens symboliques dans les chemins de publication sont refusés ; l'effacement récursif
+  ne suit pas les liens imbriqués. Les répertoires gérés restent réservés aux services.
+- Le renommage donne une visibilité atomique, sans garantie de durabilité après panne électrique.
+  Le contrôle du bail et la sérialisation de la promotion avec la mise à jour `COMPLETED`
+  appartiennent à la file/superviseur (P2.5/P2.6), pas au stockage.
+- Le backend reste local pour le MVP. Un backend objet compatible S3 pourra être ajouté ensuite ;
+  sa publication devra utiliser des clés immuables puis une référence en base.
 - Chemins construits depuis des ULID validés et des noms fixes, puis contrôlés `is_relative_to`.
 - Suppression : `deleting_at` → fichiers → lignes ; reprise idempotente par le janitor ;
+  `storage/deletion.py` valide et commit le marqueur par mise à jour conditionnelle, refuse
+  `RUNNING`, puis efface les répertoires `sources`, `results`, `logs`, `tmp` de la génération.
+  Une erreur disque conserve les lignes et le marqueur. Les lignes enfants sont supprimées dans
+  la transaction finale. Les prises, relances et finalisations d'upload devront toutes exclure
+  `deleting_at IS NOT NULL`. La suppression manuelle reste autorisée si `protected = true` ;
   rapprochement périodique des orphelins.
 - Rétention : génération terminale, non protégée, plus vieille que `STORAGE_RETENTION_DAYS`
   (0 = désactivée). Jamais `QUEUED`, `RUNNING` ni protégée.
