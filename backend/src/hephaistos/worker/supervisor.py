@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from ulid import ULID
 
@@ -29,13 +30,15 @@ from hephaistos.adapters.registry import check_installations
 from hephaistos.config import MIB, ConfigError
 from hephaistos.domain.errors import ErrorCode
 from hephaistos.gpu.nvml import GpuSnapshot, Nvml
-from hephaistos.persistence.models import SystemState, Worker
+from hephaistos.observability import AttemptJournal, configure_logging
+from hephaistos.persistence.models import Attempt, SystemState, Worker
 from hephaistos.queue.broker import ArtifactInfo, JobBroker, Lease, LeaseLost
 from hephaistos.storage.local import LocalStorage
 from hephaistos.worker.inference import (
     Cancelled,
     Failed,
     InferenceProcess,
+    LogEvent,
     Outcome,
     ProgressEvent,
     StageEvent,
@@ -131,6 +134,11 @@ class Supervisor:
                 "exec_mode": self.settings.idol_exec_mode,
                 "dinov3_dtype": self.settings.idol_dinov3_dtype,
                 "vram_limit_mb": self.settings.gpu_vram_limit_mb,
+                "log_context": dict(
+                    worker_id=self.worker_id,
+                    generation_id=self.lease.generation_id if self.lease else None,
+                    attempt_id=self.lease.attempt_id if self.lease else None,
+                ),
             },
         )
 
@@ -207,8 +215,37 @@ class Supervisor:
         except FileNotFoundError:
             pass
 
+    def _journal(self, event: str, *, lease: Lease | None = None, **fields: Any) -> None:
+        lease = lease or self.lease
+        if lease is not None:
+            AttemptJournal(self.storage, lease, now=self.clock.now).write(event, **fields)
+
+    def _journal_outcome(self, lease: Lease) -> None:
+        try:
+            with Session(self.broker.engine) as session:
+                attempt = session.get(Attempt, lease.attempt_id)
+                if attempt is not None:
+                    self._journal(
+                        "attempt_finished" if attempt.outcome else "attempt_released",
+                        lease=lease,
+                        outcome=attempt.outcome,
+                        code=attempt.error_code,
+                        message=attempt.error_message,
+                        retryable=attempt.retryable,
+                        error_trace=attempt.error_trace,
+                        stage_durations_ms=attempt.stage_durations_ms,
+                        peak_vram_bytes=attempt.peak_vram_bytes,
+                    )
+        except SQLAlchemyError:
+            log.exception(
+                "attempt_outcome_log_unavailable",
+                extra=dict(generation_id=lease.generation_id, attempt_id=lease.attempt_id),
+            )
+
     def _release(self) -> None:
         lease = self.lease
+        if lease:
+            self._journal_outcome(lease)
         self.lease = None
         self._future = None
         self._phase = ""
@@ -218,11 +255,15 @@ class Supervisor:
             try:
                 self._cleanup_attempt(lease)
             except OSError:
-                log.exception("Could not clean attempt staging; janitor will retry")
+                log.exception(
+                    "attempt_staging_cleanup_failed",
+                    extra=dict(generation_id=lease.generation_id, attempt_id=lease.attempt_id),
+                )
         self.state = "DEGRADED" if self._degraded else "READY" if self.child else "IDLE"
         self._publish(force=True)
 
     def _lost(self) -> None:
+        self._journal("lease_lost")
         self._drop_child()
         self._release()
 
@@ -296,6 +337,33 @@ class Supervisor:
 
         return receive
 
+    def _drain_events(self) -> bool:
+        assert self.lease is not None
+        while not self._events.empty():
+            attempt_id, event, event_at = self._events.get()
+            if attempt_id != self.lease.attempt_id:
+                continue
+            try:
+                if isinstance(event, StageEvent):
+                    self._record_stage(event_at)
+                    self._stage, self._stage_at = event.stage.value, event_at
+                if isinstance(event, StageEvent) and event.stage.value != "sampling":
+                    self.broker.report_progress(self.lease, stage=event.stage.value, now=self.clock.now())
+                elif isinstance(event, StepEvent):
+                    self.broker.report_progress(
+                        self.lease, stage="sampling", current=event.index, total=event.total, now=self.clock.now()
+                    )
+                if isinstance(event, StageEvent):
+                    self._journal("stage", stage=event.stage.value)
+                elif isinstance(event, StepEvent):
+                    self._journal("step", current=event.index, total=event.total)
+                elif isinstance(event, LogEvent):
+                    self._journal("adapter_log", adapter_event=event.event, fields=dict(event.fields))
+            except LeaseLost:
+                self._lost()
+                return False
+        return True
+
     def _active(self) -> None:
         assert self.lease is not None and self._future is not None and self.child is not None
         now = self.clock.monotonic()
@@ -322,23 +390,8 @@ class Supervisor:
                 self.broker.finish_cancel(self.lease, now=self.clock.now())
                 self._release()
                 return
-        while not self._events.empty():
-            attempt_id, event, event_at = self._events.get()
-            if attempt_id != self.lease.attempt_id:
-                continue
-            try:
-                if isinstance(event, StageEvent):
-                    self._record_stage(event_at)
-                    self._stage, self._stage_at = event.stage.value, event_at
-                if isinstance(event, StageEvent) and event.stage.value != "sampling":
-                    self.broker.report_progress(self.lease, stage=event.stage.value, now=self.clock.now())
-                elif isinstance(event, StepEvent):
-                    self.broker.report_progress(
-                        self.lease, stage="sampling", current=event.index, total=event.total, now=self.clock.now()
-                    )
-            except LeaseLost:
-                self._lost()
-                return
+        if not self._drain_events():
+            return
         if now >= self._job_deadline:
             self._drop_child(unexpected=True)
             self._finish(Failed(ErrorCode.TIMEOUT, "Job deadline exceeded"))
@@ -350,6 +403,7 @@ class Supervisor:
             result = self._future.result()
             if self._phase == "loading":
                 assert isinstance(result, float)
+                self._journal("model_loaded", seconds=result)
                 self.state = "BUSY"
                 lease = self.lease
                 adapter = self.registry[lease.model_id]
@@ -369,6 +423,8 @@ class Supervisor:
                     timeout_s=max(0.01, self._job_deadline - now),
                 )
                 self._publish(force=True)
+                return
+            if not self._drain_events():
                 return
             assert isinstance(result, Succeeded | Failed | Cancelled)
             if isinstance(result, Failed) and result.code in {
@@ -476,6 +532,7 @@ class Supervisor:
             )
             if lease:
                 self.lease = lease
+                self._journal("attempt_started", seed=lease.seed, model_version=lease.model_version)
                 self._stage = None
                 self._durations = {}
                 self._heartbeat_at = self.clock.monotonic()
@@ -503,6 +560,7 @@ class Supervisor:
                     self.child_model = lease.model_id
                     self.child_started_at = self.clock.now()
                     self.state = "LOADING"
+                    self._journal("model_loading")
                     self._future = self._executor.submit(
                         self.child.start, timeout_s=float(self.settings.job_timeout_seconds)
                     )
@@ -557,7 +615,7 @@ def main() -> None:
     argparse.ArgumentParser(description="Run the inference supervisor (schema must already be migrated)").parse_args()
     settings = load_settings()
     engine = create_database_engine(settings.hephaistos_data_dir)
-    logging.basicConfig(level=logging.INFO)
+    configure_logging("worker")
     try:
         Supervisor(
             JobBroker(engine, settings),

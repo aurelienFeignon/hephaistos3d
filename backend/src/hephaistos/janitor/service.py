@@ -18,8 +18,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from hephaistos.config import Settings
-from hephaistos.persistence.models import Artifact, Generation, Worker
-from hephaistos.queue.broker import JobBroker, LeaseLost, utc
+from hephaistos.observability import AttemptJournal
+from hephaistos.persistence.models import Artifact, Attempt, Generation, Worker
+from hephaistos.queue.broker import JobBroker, Lease, LeaseLost, utc
 from hephaistos.storage.deletion import DeletionConflict, delete_generation
 from hephaistos.storage.local import LocalStorage, UnsafePath, validate_id
 
@@ -45,13 +46,47 @@ class Janitor:
         self.broker = JobBroker(engine, settings)
 
     @staticmethod
-    def _guard(report: CycleReport, label: str, operation: Callable[[], Any]) -> Any:
+    def _guard(
+        report: CycleReport, label: str, operation: Callable[[], Any], *, generation_id: str | None = None
+    ) -> Any:
         try:
             return operation()
         except (OSError, ValueError, SQLAlchemyError, LeaseLost, DeletionConflict) as exc:
             report.errors.append(label)
-            LOG.warning("janitor_operation_failed", operation=label, error_type=type(exc).__name__)
+            LOG.warning(
+                "janitor_operation_failed", operation=label, error_type=type(exc).__name__, generation_id=generation_id
+            )
             return False
+
+    def _recover_lease(self, identifier: str, *, now: datetime) -> bool:
+        with Session(self.engine) as session:
+            attempt_id = session.scalar(
+                select(Attempt.id).where(Attempt.generation_id == identifier).order_by(Attempt.number.desc()).limit(1)
+            )
+        changed = self.broker.recover_expired(identifier, now=now)
+        if changed and attempt_id is not None:
+            with Session(self.engine) as session:
+                generation = session.get(Generation, identifier)
+                attempt = session.get(Attempt, attempt_id)
+                if generation is not None and attempt is not None:
+                    lease = Lease(
+                        identifier,
+                        attempt.id,
+                        attempt.worker_id,
+                        generation.model_id,
+                        generation.model_version,
+                        generation.params,
+                        generation.seed,
+                        attempt.number,
+                    )
+                    AttemptJournal(self.storage, lease, now=self.now, service="janitor").write(
+                        "attempt_recovered",
+                        outcome=attempt.outcome,
+                        code=attempt.error_code,
+                        message=attempt.error_message,
+                        retryable=attempt.retryable,
+                    )
+        return changed
 
     def _pending(self, identifier: str, now: datetime) -> bool:
         with Session(self.engine) as session:
@@ -107,6 +142,7 @@ class Janitor:
                 .values(**values)
             )
             session.commit()
+            LOG.info("pending_recovered", generation_id=identifier, status=values["status"])
             return True
 
     def _old(self, path: Path, cutoff: float) -> bool:
@@ -150,7 +186,9 @@ class Janitor:
                         return False
             if not self._old(path, (now - timedelta(hours=24)).timestamp()):
                 return False
-            LOG.info("janitor_remove_path", relative_path=str(path.relative_to(self.storage.root)))
+            LOG.info(
+                "janitor_remove_path", relative_path=str(path.relative_to(self.storage.root)), generation_id=identifier
+            )
             shutil.rmtree(path)
             session.commit()
             return True
@@ -201,12 +239,15 @@ class Janitor:
                 self._guard(
                     report,
                     f"lease:{identifier}",
-                    partial(self.broker.recover_expired, identifier, now=now),
+                    partial(self._recover_lease, identifier, now=now),
+                    generation_id=identifier,
                 )
             )
         for identifier in pending:
             report.recovered_pending += bool(
-                self._guard(report, f"pending:{identifier}", partial(self._pending, identifier, now))
+                self._guard(
+                    report, f"pending:{identifier}", partial(self._pending, identifier, now), generation_id=identifier
+                )
             )
         for identifier in deleting:
             report.deleted_generations += bool(
@@ -214,6 +255,7 @@ class Janitor:
                     report,
                     f"delete:{identifier}",
                     partial(delete_generation, sessionmaker(self.engine), self.storage, identifier, now=now),
+                    generation_id=identifier,
                 )
             )
         if maintenance:
@@ -243,6 +285,7 @@ class Janitor:
                                 now=now,
                                 retention_before=cutoff,
                             ),
+                            generation_id=identifier,
                         )
                     )
             for area in ("sources", "results", "logs", "tmp"):
@@ -251,8 +294,18 @@ class Janitor:
                     folder = self.storage._check(self.storage.root / area)
                     if folder.exists():
                         for path in list(folder.iterdir()):
+                            path_id: str | None = path.name.lstrip(".").split(".", 1)[0]
+                            try:
+                                validate_id(path.name.lstrip(".").split(".", 1)[0])
+                            except UnsafePath:
+                                path_id = None
                             report.removed_paths += bool(
-                                self._guard(report, f"path:{area}/{path.name}", partial(self._collect, area, path, now))
+                                self._guard(
+                                    report,
+                                    f"path:{area}/{path.name}",
+                                    partial(self._collect, area, path, now),
+                                    generation_id=path_id,
+                                )
                             )
 
                 self._guard(report, f"area:{area}", collect_area)

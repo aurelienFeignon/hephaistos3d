@@ -293,6 +293,7 @@ def register_upload(router: APIRouter, resources: Resources) -> None:
         form = await receive(request, resources)
         try:
             identifier = await run_in_threadpool(ingest.create, form, principal)
+            request.state.generation_id = identifier
             with Session(resources.engine) as session:
                 body = resources.body(session, resources.generation(session, identifier))
             response.headers["Location"] = f"/api/v1/generations/{identifier}"

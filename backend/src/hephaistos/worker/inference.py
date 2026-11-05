@@ -259,8 +259,15 @@ class _PipeHooks:
 def _child_main(adapter_id: str, models_root: Path, options: dict[str, Any], conn: Connection, cancel: Event) -> None:
     import sys
 
-    from hephaistos.adapters.registry import build_registry
+    from structlog.contextvars import bind_contextvars
 
+    from hephaistos.adapters.registry import build_registry
+    from hephaistos.observability import configure_logging
+    from hephaistos.storage.local import UnsafePath, validate_id
+
+    configure_logging("inference")
+    context = options.pop("log_context", {})
+    bind_contextvars(model_id=adapter_id, **context)
     adapter = build_registry(enable_fake=True).get(adapter_id)
     if adapter is None:
         conn.send(_LoadFailed(f"adaptateur {adapter_id!r} inconnu"))
@@ -281,6 +288,15 @@ def _child_main(adapter_id: str, models_root: Path, options: dict[str, Any], con
         if isinstance(message, _Shutdown):
             adapter.unload()
             sys.exit(0)
+        # Reused children must correlate library logs with the current generation.
+        generation_id: str | None
+        attempt_id: str | None
+        try:
+            generation_id = validate_id(message.request.output_dir.parent.name)
+            attempt_id = validate_id(message.request.output_dir.name)
+        except UnsafePath:
+            generation_id = attempt_id = None
+        bind_contextvars(generation_id=generation_id, attempt_id=attempt_id)
         outcome: Outcome
         try:
             outcome = Succeeded(adapter.generate(message.request, hooks))

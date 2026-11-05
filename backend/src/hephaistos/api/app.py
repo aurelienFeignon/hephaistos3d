@@ -5,23 +5,31 @@ Schema migrations are always explicit; API processes never load inference runtim
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+import logging
+import secrets
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import Engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
+from structlog.contextvars import bind_contextvars, reset_contextvars
 
 from hephaistos.api.dependencies import current_principal
 from hephaistos.api.errors import ResourceError
 from hephaistos.api.resources import register_resources
 from hephaistos.config import Settings, load_settings
+from hephaistos.observability import logging_context
 from hephaistos.persistence.database import create_database_engine
+from hephaistos.persistence.models import Artifact
 from hephaistos.system.dispatch import DispatchService, DispatchState
 
 
@@ -62,12 +70,16 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        try:
-            dispatch.initialize(now=now())
-            yield
-        finally:
-            if owns_engine:
-                database.dispose()
+        with logging_context("api"):
+            logger = logging.getLogger(__name__)
+            try:
+                dispatch.initialize(now=now())
+                logger.info("api_started")
+                yield
+            finally:
+                logger.info("api_stopped")
+                if owns_engine:
+                    database.dispose()
 
     app = FastAPI(
         title="Hephaistos 3D",
@@ -77,6 +89,42 @@ def create_app(
         redoc_url=None,
         lifespan=lifespan,
     )
+
+    @app.middleware("http")
+    async def access_log(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        started = time.monotonic()
+        tokens = bind_contextvars(request_id=secrets.token_hex(16))
+        response: Response | None = None
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            try:
+                route = getattr(request.scope.get("route"), "path", "unmatched")
+                fields: dict[str, Any] = dict(
+                    method=request.method,
+                    route=route,
+                    status=response.status_code if response is not None else 500,
+                    elapsed_ms=round((time.monotonic() - started) * 1000),
+                )
+                generation_id = getattr(request.state, "generation_id", None)
+                identifier = request.path_params.get("identifier")
+                if route.startswith("/api/v1/generations/"):
+                    generation_id = identifier
+                elif route.startswith("/api/v1/artifacts/") and identifier:
+                    try:
+                        with Session(database) as session:
+                            artifact = session.get(Artifact, identifier)
+                            if artifact is not None:
+                                generation_id = artifact.generation_id
+                    except SQLAlchemyError:
+                        fields["artifact_id"] = identifier
+                if generation_id:
+                    fields["generation_id"] = generation_id
+                logging.getLogger(__name__).info("http_request", extra=fields)
+            finally:
+                reset_contextvars(**tokens)
+
     router = APIRouter(
         prefix="/api/v1",
         dependencies=[Depends(current_principal)],

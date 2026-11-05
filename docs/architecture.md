@@ -553,4 +553,27 @@ variable. Référence complète et commentée : `.env.example`.
 - `restart: unless-stopped` ; `migrate` ponctuel dont dépendent les autres.
 - Reproductibilité : `uv.lock`, `package-lock.json`, images de base épinglées par empreinte, commit
   Idol épinglé.
-- Logs : JSON sur stdout + journal par tentative.
+- Logs (P2.10) : `observability.py` configure stdlib et structlog en JSON sur stdout dans les
+  points d'entrée worker, janitor et enfant d'inférence, ainsi que pendant le lifespan API.
+  Champs communs : timestamp UTC, level, service, event, logger ; les lignes liées à une
+  génération sont corrélées par generation_id et, pour l'inférence, attempt_id/worker_id.
+- L'API émet `http_request` avec request_id, méthode, modèle de route, statut et durée, puis
+  generation_id lorsque connu (soumission, génération ou artefact). Les requêtes ne journalisent
+  ni corps ni query string. L'access logger Uvicorn est remplacé par ces événements corrélés.
+  Le contexte de requête et la configuration du programme hôte sont restaurés après usage.
+- Le superviseur écrit `logs/<gen_id>/attempt-<n>.jsonl` dès la prise, relaie stage/step/log des
+  hooks puis journalise l'issue réellement persistée, y compris chargement échoué, interruption
+  et annulation. Les traces sont conservées dans ce journal de diagnostic et en base.
+  Chaque événement est ajouté avec O_APPEND et le fichier est fermé immédiatement ; symlinks
+  refusés et O_NOFOLLOW sur le fichier. Le disque n'est pas fsync à chaque événement.
+- Un échec de journalisation disque est signalé sur stdout et ne transforme pas une génération
+  réussie en erreur. Les champs non sérialisables/non finis sont représentés en texte pour
+  conserver une ligne JSON valide. Les champs d'un adaptateur sont imbriqués et ne remplacent
+  pas la corrélation de la tentative.
+- Les événements périmés sont rejetés par attempt_id ; un second drainage après la résolution
+  du Future préserve les derniers messages. Le janitor conserve l'identifiant de la tentative
+  avant reprise du bail pour éviter d'écrire dans le journal d'une tentative nouvellement prise.
+  Les journaux suivent la suppression/rétention de leur génération ; aucune rotation séparée.
+- Le format de diagnostic du CLI existant est conservé. La mise en forme concerne les logs
+  applicatifs et ceux des bibliothèques qui utilisent logging, pas les écritures natives directes
+  de dépendances sur les descripteurs stdout/stderr.

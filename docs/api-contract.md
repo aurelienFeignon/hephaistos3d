@@ -59,9 +59,10 @@ Précisions de lecture (P2.8) :
 - Priorité des motifs d'attente : suspension, délai de relance, absence de worker disponible,
   VRAM libre insuffisante. Un job prêt à être pris peut avoir un motif null.
 - Les générations marquées pour suppression sont invisibles, y compris leurs artefacts.
-  Les chemins internes et traces d'exception des tentatives ne sont pas exposés.
+  Les représentations Generation/Attempt n'exposent ni chemin interne ni trace d'exception.
+  Le journal de diagnostic `/logs`, protégé par le même principal, peut contenir la trace complète.
 - `/logs` exige `attempt` ≥ 1 ; `tail` vaut 500 par défaut (1–10 000). La réponse est un tableau
-  d'événements JSON. Une dernière ligne incomplète est ignorée. L'écriture des journaux sera P2.10.
+  d'événements JSON. Une dernière ligne incomplète est ignorée. L'écriture est implémentée en P2.10.
 - Les fichiers sont servis à partir de noms fixes reconstruits par le serveur ; les liens
   symboliques sont refusés. `ETag` est le SHA-256 entre guillemets. Le téléchargement supporte Range.
 
@@ -229,6 +230,26 @@ Interrogation périodique de `GET /generations?status=QUEUED&status=RUNNING` et 
 toutes les **2 s** tant qu'il existe une génération active, **15 s** sinon ; suspendue quand
 l'onglet est masqué. SSE (`/events`) est réservé à une version ultérieure si la charge le justifie
 (ADR-0008).
+
+### Journaux de tentative (P2.10)
+
+Chaque ligne JSONL contient `timestamp` (UTC), `level`, `service`, `event`, `generation_id`,
+`attempt_id`, `attempt` (numéro), `worker_id`, `model_id` et `fields` (données de l'événement).
+Les événements comprennent `attempt_started`, `model_loading`, `model_loaded`, `stage`, `step`,
+`adapter_log`, `attempt_finished`, `attempt_released`, `lease_lost` et `attempt_recovered`.
+Les champs d'un adaptateur restent sous `fields` et ne peuvent remplacer les identifiants.
+
+- `attempt_finished.fields.outcome` reflète la tentative persistée (`SUCCEEDED`, `FAILED`,
+  `CANCELLED`, `INTERRUPTED`, etc.), avec code/message, caractère relançable, trace éventuelle
+  et métriques. Un succès d'inférence annulé avant publication est donc journalisé CANCELLED.
+- Le janitor écrit `attempt_recovered` dans le journal de la tentative abandonnée/annulée,
+  même si un autre worker a déjà pris la génération pour une nouvelle tentative.
+- Les fichiers sont ouverts en ajout puis fermés à chaque événement. Les journaux précédents
+  sont conservés après relance. Les événements d'une ancienne tentative sont ignorés, et les
+  derniers événements sont drainés avant journalisation de l'issue.
+- La journalisation sur disque est best effort : un échec d'écriture/symlink est signalé dans
+  les logs du service sans changer le statut de la génération. La suppression reste effectuée
+  avec la génération ; aucun mécanisme de rotation supplémentaire n'est introduit en P2.10.
 
 ## 7. Codes d'erreur stables (`code`)
 

@@ -7,6 +7,7 @@ from threading import Event
 from hephaistos.config import load_settings
 from hephaistos.janitor.runner import heartbeat, run_loop
 from hephaistos.janitor.service import Janitor
+from hephaistos.observability import configure_logging
 from hephaistos.persistence.database import create_database_engine
 
 
@@ -14,6 +15,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Recover interrupted jobs and maintain local storage without CUDA")
     parser.add_argument("--once", action="store_true", help="Run one complete maintenance cycle and exit")
     args = parser.parse_args()
+    configure_logging("janitor")
     settings = load_settings()
     engine = create_database_engine(settings.hephaistos_data_dir)
     try:
