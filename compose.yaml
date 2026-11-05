@@ -1,15 +1,6 @@
-# Hephaistos 3D — état P0 : seul le service de sonde existe, et il ne démarre que sur demande
-# (profil « probe »). Il n'a AUCUN accès réseau (G0.3) et ne publie aucun port.
-#
-#   docker compose --profile probe build worker-probe
-#   docker compose --profile probe run --rm worker-probe python -m hephaistos.probes.cuda
-#   docker compose --profile gpu-test run --rm worker-test      → tests « gpu » (P1)
-#
-# À partir de P2, le service « worker » portera le profil « gpu » (D12) :
-#   docker compose up -d                       → application SANS GPU
-#   docker compose --profile gpu up -d worker  → active la génération
-#   docker compose stop worker                 → rend toute la VRAM
-
+# Backend P2 : aucune publication de port et aucun GPU sans profil explicite.
+# Le frontend et son port 3030 seront ajoutés en P3 (ADR-0009).
+# Préparer les répertoires et permissions : docs/deployment.md.
 name: hephaistos3d
 
 x-hardening: &hardening
@@ -17,9 +8,193 @@ x-hardening: &hardening
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   tmpfs:
-    - /tmp:size=2g
+    - /tmp:size=2g,mode=1777
+
+x-environment: &environment
+  HEPHAISTOS_DATA_DIR: /data
+  HEPHAISTOS_MODELS_ROOT: /models
+  GPU_WORKERS: "${GPU_WORKERS:-1}"
+  GPU_MAX_CONCURRENT_JOBS: "${GPU_MAX_CONCURRENT_JOBS:-1}"
+  GPU_MIN_FREE_VRAM_MB: "${GPU_MIN_FREE_VRAM_MB:-8192}"
+  GPU_VRAM_LIMIT_MB: "${GPU_VRAM_LIMIT_MB:-0}"
+  GPU_WAIT_TIMEOUT_SECONDS: "${GPU_WAIT_TIMEOUT_SECONDS:-0}"
+  MODEL_IDLE_UNLOAD_SECONDS: "${MODEL_IDLE_UNLOAD_SECONDS:-900}"
+  DISPATCH_PAUSED: "${DISPATCH_PAUSED:-false}"
+  IDOL_EXEC_MODE: "${IDOL_EXEC_MODE:-full}"
+  IDOL_DINOV3_DTYPE: "${IDOL_DINOV3_DTYPE:-bf16}"
+  JOB_MAX_RETRIES: "${JOB_MAX_RETRIES:-3}"
+  JOB_RETRY_BACKOFF_SECONDS: "${JOB_RETRY_BACKOFF_SECONDS:-30}"
+  JOB_RETRY_BACKOFF_MAX_SECONDS: "${JOB_RETRY_BACKOFF_MAX_SECONDS:-900}"
+  JOB_LEASE_SECONDS: "${JOB_LEASE_SECONDS:-60}"
+  JOB_TIMEOUT_SECONDS: "${JOB_TIMEOUT_SECONDS:-1800}"
+  WORKER_SHUTDOWN_GRACE_SECONDS: "${WORKER_SHUTDOWN_GRACE_SECONDS:-90}"
+  WORKER_STOP_GRACE_SECONDS: "${WORKER_STOP_GRACE_SECONDS:-120}"
+  STORAGE_RETENTION_DAYS: "${STORAGE_RETENTION_DAYS:-30}"
+  STORAGE_CLEANUP_INTERVAL_HOURS: "${STORAGE_CLEANUP_INTERVAL_HOURS:-24}"
+  UPLOAD_MAX_BYTES: "${UPLOAD_MAX_BYTES:-20971520}"
+  UPLOAD_MAX_PIXELS: "${UPLOAD_MAX_PIXELS:-40000000}"
+  ENABLE_FAKE_ADAPTER: "${ENABLE_FAKE_ADAPTER:-false}"
+
+x-runtime: &runtime
+  <<: *hardening
+  init: true
+  user: "${HEPHAISTOS_UID:-1000}:${HEPHAISTOS_GID:-1000}"
+  environment: *environment
+  restart: unless-stopped
+  pids_limit: 512
+  # Seuls le heartbeat et les points de montage résident ici ; les données sont bind-mountées.
+  tmpfs:
+    - /tmp:size=2g,mode=1777
+    - /data:size=1m,mode=0700,uid=${HEPHAISTOS_UID:-1000},gid=${HEPHAISTOS_GID:-1000}
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-api-build: &api-build
+  context: .
+  dockerfile: deploy/backend.Dockerfile
+  target: api
+
+x-db: &db
+  type: bind
+  source: ./var/db
+  target: /data/db
+  read_only: false
+  bind:
+    create_host_path: false
+
+x-sources: &sources
+  type: bind
+  source: ./var/sources
+  target: /data/sources
+  read_only: false
+  bind:
+    create_host_path: false
+
+x-results: &results
+  type: bind
+  source: ./var/results
+  target: /data/results
+  read_only: false
+  bind:
+    create_host_path: false
+
+x-logs: &logs
+  type: bind
+  source: ./var/logs
+  target: /data/logs
+  read_only: false
+  bind:
+    create_host_path: false
+
+x-tmp: &tmp
+  type: bind
+  source: ./var/tmp
+  target: /data/tmp
+  read_only: false
+  bind:
+    create_host_path: false
 
 services:
+  migrate:
+    <<: *runtime
+    build: *api-build
+    image: hephaistos3d/api:p2
+    command: ["alembic", "upgrade", "head"]
+    network_mode: none
+    volumes: [*db]
+    restart: "no"
+    mem_limit: 512m
+
+  api:
+    <<: *runtime
+    build: *api-build
+    image: hephaistos3d/api:p2
+    command: ["uvicorn", "hephaistos.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose: ["8000"]
+    networks: [backend]
+    volumes: [*db, *sources, *results, *logs, *tmp]
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "python", "-m", "hephaistos.healthcheck", "api"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    <<: *runtime
+    profiles: [gpu]
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+      target: worker
+    image: hephaistos3d/worker:p2
+    command: ["python", "-m", "hephaistos.worker.supervisor"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    network_mode: none
+    shm_size: 1g
+    pids_limit: 4096
+    stop_grace_period: "${WORKER_STOP_GRACE_SECONDS:-120}s"
+    volumes:
+      - *db
+      - <<: *sources
+        read_only: true
+      - *results
+      - *logs
+      - *tmp
+      - type: bind
+        source: ./var/models
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./var/cache
+        target: /cache
+        read_only: false
+        bind:
+          create_host_path: false
+    deploy:
+      replicas: ${GPU_WORKERS:-1}
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-m", "hephaistos.healthcheck", "worker"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  janitor:
+    <<: *runtime
+    build: *api-build
+    image: hephaistos3d/api:p2
+    command: ["python", "-m", "hephaistos.janitor"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    network_mode: none
+    volumes: [*db, *sources, *results, *logs, *tmp]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-m", "hephaistos.healthcheck", "janitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
   worker-probe:
     profiles: ["probe"]
     build:
@@ -27,6 +202,7 @@ services:
       dockerfile: deploy/backend.Dockerfile
       target: worker
     image: hephaistos3d/worker:p0
+    command: ["python", "-m", "hephaistos.probes.cuda"]
     <<: *hardening
     user: "${HEPHAISTOS_UID:-1000}:${HEPHAISTOS_GID:-1000}"
     network_mode: none
@@ -79,3 +255,7 @@ services:
               count: 1
               capabilities: [gpu]
     restart: "no"
+
+networks:
+  backend:
+    internal: true

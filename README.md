@@ -5,8 +5,8 @@
 A self-hosted web application that turns **a 2D image into a 3D object** (Gaussian Splatting),
 using Sperid Labs' [Idol](https://github.com/speridlabs/idol-sdk) model on your own NVIDIA GPU.
 
-> **Status: in development.** Gate P0 (feasibility on a real GPU) is validated; the inference
-> engine (P1) is in progress. There is no usable interface yet. Plan and acceptance criteria:
+> **Status: in development.** Gates P0 and P1 are validated; the backend (P2) is implemented
+> and its CPU/GPU Compose integration is validated. Gate P2 awaits review. There is no usable interface yet. Plan and acceptance criteria:
 > [`docs/development-plan.md`](docs/development-plan.md) (in French, like the rest of `docs/`).
 
 ## What it does
@@ -39,6 +39,9 @@ distributed** here: you install them yourself, under their own licenses.
 The FLUX.2-dev VAE license forbids any commercial use of the generations that depend on it.
 
 Offline weight installation: [`docs/install-models.md`](docs/install-models.md).
+
+Backend Compose preparation and validation: [`docs/deployment.md`](docs/deployment.md) (French).
+No host port is published until the frontend is added in P3; the GPU worker requires an explicit profile.
 
 ## Development
 

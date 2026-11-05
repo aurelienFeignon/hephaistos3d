@@ -6,8 +6,8 @@ Application web auto-hébergée qui transforme **une image 2D en objet 3D** (Gau
 avec le modèle [Idol](https://github.com/speridlabs/idol-sdk) de Sperid Labs, sur votre propre GPU
 NVIDIA.
 
-> **État : en développement.** Le Gate P0 (faisabilité sur GPU réel) est validé ; le moteur
-> d'inférence (P1) est en cours. Il n'y a pas encore d'interface utilisable. Plan et critères :
+> **État : en développement.** Les gates P0 et P1 sont validés ; le backend P2 est implémenté,
+> son intégration Compose CPU/GPU est validée. Le gate P2 attend sa revue. Il n'y a pas encore d'interface utilisable. Plan et critères :
 > [`docs/development-plan.md`](docs/development-plan.md).
 
 ## Ce que fait le projet
@@ -40,6 +40,9 @@ ici : vous les installez vous-même, sous leurs propres licences.
 La licence du VAE FLUX.2-dev interdit tout usage commercial des générations qui en dépendent.
 
 Installation hors ligne des poids : [`docs/install-models.md`](docs/install-models.md).
+
+Préparation et validation du backend Compose : [`docs/deployment.md`](docs/deployment.md).
+Aucun port hôte avant le frontend P3 ; le worker GPU exige un profil explicite.
 
 ## Développement
 

@@ -47,7 +47,7 @@ COPY backend/alembic ./alembic
 FROM runtime-base AS api
 COPY --from=builder-api /opt/venv /opt/venv
 USER 1000:1000
-CMD ["python", "-c", "print('hephaistos api : point d’entrée ajouté en P2')"]
+CMD ["uvicorn", "hephaistos.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
 
 FROM runtime-base AS worker
 # Triton compile un lanceur C à la volée (torch.compile) : gcc et libc6-dev sont requis à l'exécution.
@@ -61,7 +61,7 @@ ENV HF_HOME=/models/huggingface \
     TRITON_CACHE_DIR=/cache/triton \
     ATTN_BACKEND=sdpa
 USER 1000:1000
-CMD ["python", "-m", "hephaistos.probes.cuda"]
+CMD ["python", "-m", "hephaistos.worker.supervisor"]
 
 FROM worker AS worker-test
 COPY --from=builder-worker-test /opt/venv /opt/venv

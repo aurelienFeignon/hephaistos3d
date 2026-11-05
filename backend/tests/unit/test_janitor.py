@@ -373,3 +373,23 @@ def test_entrypoint_help_does_not_load_cuda():
     assert subprocess.run([sys.executable, "-c", code], capture_output=True).returncode == 0
     result = subprocess.run([sys.executable, "-m", "hephaistos.janitor", "--help"], capture_output=True, text=True)
     assert result.returncode == 0 and "--once" in result.stdout
+
+
+def test_zero_day_retention_simulated_with_cutoff_preserves_protected_and_running(janitor, queue):
+    # An injected cutoff simulates immediate retention; setting retention_days=0 disables it.
+    expired = NOW - timedelta(seconds=1)
+    identifiers = [
+        job(queue, status="COMPLETED", finished_at=expired),
+        job(queue, status="COMPLETED", finished_at=expired, protected=True),
+        job(queue, status="RUNNING", finished_at=expired),
+    ]
+    paths = [sources(janitor, identifier) for identifier in identifiers]
+    removed = [
+        delete_generation(sessionmaker(queue.engine), janitor.storage, identifier, now=NOW, retention_before=NOW)
+        for identifier in identifiers
+    ]
+    assert removed == [True, False, False]
+    assert get(queue, identifiers[0]) is None and not paths[0].exists()
+    for identifier, path in zip(identifiers[1:], paths[1:], strict=True):
+        assert get(queue, identifier) is not None and path.exists()
+        assert get(queue, identifier).deleting_at is None

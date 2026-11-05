@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     job_retry_backoff_max_seconds: int = 900
     job_lease_seconds: int = Field(60, ge=15, le=600)
     job_timeout_seconds: int = Field(1800, gt=0)
+    worker_stop_grace_seconds: int = Field(120, gt=0)
     worker_shutdown_grace_seconds: int = Field(90, gt=0)  # < stop_grace_period de Compose
 
     storage_retention_days: int = Field(30, ge=0)
@@ -52,6 +53,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _backoff_ceiling(self) -> Settings:
+        if self.worker_stop_grace_seconds <= self.worker_shutdown_grace_seconds:
+            raise ValueError("WORKER_STOP_GRACE_SECONDS must exceed WORKER_SHUTDOWN_GRACE_SECONDS")
         if self.job_retry_backoff_max_seconds < self.job_retry_backoff_seconds:
             raise ValueError(
                 f"JOB_RETRY_BACKOFF_MAX_SECONDS ({self.job_retry_backoff_max_seconds}) doit être "

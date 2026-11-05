@@ -400,9 +400,9 @@ injectables (`GPU_OOM`, `NO_OBJECT`, `CUDA_ERROR`, `CRASH`, `HANG`).
 |---|---|---|---|---|---|
 | `var/db` | `/data/db` | `hephaistos.sqlite3` (+ WAL) | rw | rw | rw |
 | `var/sources` | `/data/sources` | `<gen_id>/original.<ext>`, `input.png` | rw | ro | rw |
-| `var/results` | `/data/results` | `<gen_id>/splat.ply`, `preview.png`, `camera.json` | ro | rw | rw |
+| `var/results` | `/data/results` | `<gen_id>/splat.ply`, `preview.png`, `camera.json` | rw | rw | rw |
 | `var/tmp` | `/data/tmp` | uploads en cours, sorties non promues | rw | rw | rw |
-| `var/logs` | `/data/logs` | `<gen_id>/attempt-<n>.jsonl` | ro | rw | rw |
+| `var/logs` | `/data/logs` | `<gen_id>/attempt-<n>.jsonl` | rw | rw | rw |
 | `var/models` | `/models` | `idol/`, `huggingface/` | — | **ro** | — |
 | `var/cache` | `/cache` | `torchinductor/`, `triton/` | — | rw | — |
 
@@ -546,6 +546,24 @@ variable. Référence complète et commentée : `.env.example`.
 ## 13. Déploiement
 
 - `compose.yaml` à la racine, projet `hephaistos3d`, réseau dédié ; aucun service extérieur référencé.
+- P2.11 : build et intégration CPU/GPU validés sur volumes temporaires le 2026-11-05 ; gate P2
+  en attente de revue utilisateur. Voir [deployment.md](deployment.md) et les
+  [preuves CPU](validation/P2.11-cpu.md) et [GPU](validation/P2.11-gpu.md). `migrate`, `api` et `janitor` par défaut,
+  `worker` sous profil gpu. Aucun port hôte avant le frontend P3 (ADR-0009).
+- Bind mounts séparés, créés par l'exploitant (`create_host_path: false`), racine `/data` en tmpfs
+  appartenant à l'UID/GID configuré. API rw sur résultats et journaux pour la suppression manuelle.
+  Modèles/cache non montés dans l'API ; worker avec sources et modèles ro. Liste d'inclusion de
+  `.dockerignore` : données, poids et secrets exclus du contexte de build.
+- `WORKER_STOP_GRACE_SECONDS=120` pilote `stop_grace_period` et doit être strictement supérieur
+  à `WORKER_SHUTDOWN_GRACE_SECONDS=90` ; validation au démarrage par Settings.
+- Healthchecks Python sans CUDA : API via HTTP local ; worker via heartbeat SQLite du hostname
+  courant, récent et hors DEGRADED/STOPPING ; janitor via date/ok de son dernier cycle local.
+  Une sonde ne crée pas la base. Les services attendent la sortie réussie de migrate.
+- Migration, worker et janitor sans réseau ; API sur réseau interne uniquement. Racines en
+  lecture seule, non root, capabilities retirées, no-new-privileges, init, limites de processus
+  et rotation des logs Docker. Le parcours CPU, les permissions, EXDEV, migrations, reprises
+  et redémarrages sont démontrés. Les essais GPU sont consignés séparément ; les précisions
+  des critères et le gate P2 restent à faire valider par l’utilisateur.
 - `worker` : profil `gpu`, `deploy.replicas: ${GPU_WORKERS}`, réservation `nvidia` `count: 1`,
   `stop_grace_period` > `WORKER_SHUTDOWN_GRACE_SECONDS`.
 - Healthchecks : `api` → `/api/v1/system/health` ; `worker` → fraîcheur du heartbeat (superviseur) ;

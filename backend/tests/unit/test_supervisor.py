@@ -485,3 +485,17 @@ if __name__ == '__main__':
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=10)
+
+
+def test_queued_job_starts_when_free_vram_recovers(rig):
+    supervisor, _clock, children = rig
+    identifier = submit(supervisor)
+    supervisor.gpu_probe = lambda: gpu(100)
+    supervisor.tick()
+    assert get(supervisor.broker, identifier).status == "QUEUED"
+    assert children == []
+    assert attempts(supervisor.broker) == []
+    supervisor.gpu_probe = lambda: gpu()
+    until(supervisor, lambda: get(supervisor.broker, identifier).status == "COMPLETED")
+    assert len(children) == 1
+    assert len(attempts(supervisor.broker)) == 1

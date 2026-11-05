@@ -1,0 +1,17 @@
+# Allowlist: weights, runtime data, .env, git history and local notes never enter the build context.
+**
+!backend/
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/README.md
+!backend/src/
+!backend/src/**
+!backend/alembic.ini
+!backend/alembic/
+!backend/alembic/**
+!backend/tests/
+!backend/tests/**
+!deploy/
+!deploy/backend.Dockerfile
+**/__pycache__
+**/*.pyc
