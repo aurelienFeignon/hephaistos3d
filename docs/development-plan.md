@@ -198,7 +198,7 @@ suivante — documenté).
 | A2.11 | Suspension : aucune prise pendant la suspension ; le job en cours va à son terme ; reprise dans l'ordre de la file |
 | A2.12 | VRAM libre simulée sous `GPU_MIN_FREE_VRAM_MB` (FakeAdapter + NVML factice) : le job reste `QUEUED` avec le motif `VRAM_INSUFFICIENT`, sans processus d'inférence, puis démarre quand la VRAM revient ; avec `GPU_WAIT_TIMEOUT_SECONDS` > 0, `FAILED` en `GPU_UNAVAILABLE`, sans relance automatique |
 | A2.13 | Exception non classée : `FAILED`, `needs_diagnosis`, **aucune** relance automatique (D8) |
-| A2.15 | `docker compose stop worker` hors génération : NVML ne montre plus aucun processus Hephaistos ; API et UI répondent ; une génération soumise attend avec le motif `NO_WORKER` puis aboutit après `docker compose --profile gpu up -d worker` |
+| A2.15 | `docker compose stop worker` hors génération : NVML ne montre plus aucun processus Hephaistos ; API répond (UI à vérifier en P3, report validé le 2026-11-05) ; une génération soumise attend avec le motif `NO_WORKER` puis aboutit après `docker compose --profile gpu up -d worker` |
 | A2.16 | `docker compose up -d` sans profil : aucun conteneur Hephaistos ne réserve le GPU |
 | A2.14 | Erreur CUDA injectée : processus d'inférence remplacé, superviseur intact, 3 morts en 10 min → `DEGRADED` et distribution suspendue |
 | A2.10 | Aucun chemin de téléchargement ne sort de `/data/results` (tests de traversée : `..`, encodages, liens symboliques) |
@@ -219,6 +219,10 @@ jour conditionnelle sur le bail).
 **Objectif** : soumettre et suivre une génération depuis le navigateur.
 
 **Prérequis** : P2 validé ; D5 tranché.
+
+**Avancement au 2026-11-05** : P3.1 implémenté et vérifié ; proxy sécurisé de P3.9 avancé,
+service Compose/image standalone restant à faire. [Preuves](validation/P3.1-client-proxy.md) ;
+[gate P3 en cours](gates/P3.md). Prochaine tâche : P3.2.
 
 | Tâche | Contenu |
 |---|---|

@@ -1,8 +1,9 @@
 # Backend Compose — P2.11
 
-**État : build et intégration Docker CPU/GPU validés le 2026-11-05 sur volumes temporaires ; gate P2 en attente de revue.**
+**État : build et intégration Docker CPU/GPU validés le 2026-11-05 sur volumes temporaires ; gate P2 validé ; corrections de sécurité avant P3 vérifiées.**
 Preuves et périmètre : [CPU](validation/P2.11-cpu.md) et [GPU](validation/P2.11-gpu.md).
-P0/P1 sont validées, le backend P2 est implémenté ; aucun gate P2 n'est encore validé.
+Les gates P0, P1 et P2 sont validés. Les corrections de sécurité préalables à P3 sont décrites
+dans le [compte rendu](security/remediation-P2-2026-11-05.md).
 Le frontend sera ajouté en P3. Aucun port hôte n'est publié à cette étape (ADR-0009) :
 l'API écoute sur 8000 uniquement dans le réseau interne. Le port 3030 reste réservé au frontend.
 
@@ -32,6 +33,43 @@ une génération via la procédure en trois étapes.
 `.dockerignore` utilise une liste d'inclusion des seules sources backend, migrations, tests,
 manifestes verrouillés et Dockerfile. Les poids, données, `.env`, notes locales, historique git,
 venv et node_modules n'entrent pas dans le contexte de build.
+
+## Configurer la sécurité avant le démarrage
+
+Renseigner `API_ACCESS_TOKEN` dans le `.env` local avec un secret généré, par exemple via
+`python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`. Ne pas commiter ce fichier.
+Le jeton doit contenir 32 à 512 caractères URL-safe. L'API refuse de démarrer s'il est vide.
+Compose ne le transmet qu'à l'API ; les autres services n'en ont pas besoin.
+Toutes les routes, documents OpenAPI et fichiers exigent `Authorization: Bearer <jeton>`, sauf
+la sonde GET `/api/v1/system/health`. Rotation : remplacer le secret puis recréer l'API et
+actualiser son futur client serveur.
+
+`API_ALLOWED_HOSTS` contient des noms exacts sans port ni joker (défaut : localhost, adresses
+loopback et nom Compose `api`). `API_ALLOWED_ORIGINS` contient les origines HTTP(S) exactes
+(schéma, nom, port), sans chemin ; les origines inconnues ou `null` et les mutations marquées
+`Sec-Fetch-Site: cross-site` sont refusées. Un client serveur avec jeton peut omettre Origin.
+
+Le futur proxy P3 devra conserver le secret côté serveur, sans variable `NEXT_PUBLIC_*`, et
+valider lui-même Host/Origin avant de l'ajouter aux requêtes. Un proxy qui ajoute le jeton à
+n'importe quelle requête navigateur annulerait cette protection. L'ouverture au LAN exige une
+politique d'accès pour les utilisateurs du frontend ; le jeton interservices seul ne la remplace pas.
+
+Valeurs par défaut : corps JSON 64 Kio, réception du corps 30 s, un upload simultané, au plus
+100 générations actives (PENDING/QUEUED/RUNNING, réservations comprises), budget stockage 20 Gio
+et marge disque de 1 Gio. Uvicorn limite aussi la concurrence à 64 requêtes.
+Les relances manuelles vérifient les mêmes quotas de file et de disque sous verrou SQLite.
+Les réservations d'upload sont partagées entre processus API, renouvelées toutes les 40 s et
+expirent après 120 s si un processus disparaît. La nouvelle migration ajoute seulement
+`system_state.ingest_reservations` ; elle ne reconstruit pas les tables de générations.
+
+Le budget par génération réserve deux copies de l'upload, d'un PNG RGBA au plafond de pixels,
+de 128 Mio de résultats et de 4 Mio de marge. Ce calcul conservateur couvre les promotions entre
+filesystems ; il peut refuser une admission avant d'atteindre 100 jobs. Les octets existants de
+`db/sources/results/logs/tmp` sont comptés, ainsi que les futurs budgets des jobs actifs.
+Cache et poids sont exclus. Il s'agit d'un contrôle à l'admission, pas d'un quota matériel du
+filesystem : l'espace occupé par d'autres applications doit rester surveillé. La marge libre est
+vérifiée sur les filesystems des volumes persistants, pas sur le tmpfs racine `/data`.
+Les réglages et bornes sont dans `.env.example` et `config.py`.
 
 ## Vérifier et lancer le backend sans GPU
 
@@ -118,4 +156,15 @@ sans ajouter curl ni des outils GPU.
 - Prendre connaissance de la distinction entre simulation immédiate par cutoff et configuration 0
   (purge désactivée), toutes deux testées : [dossier du gate P2](gates/P2.md).
 - Partie UI d'A2.15 réservée à P3, interface non encore implémentée.
-- Approbation du gate P2 par l'utilisateur avant de commencer P3 ; aucun déploiement permanent.
+- Gate P2 approuvé le 2026-11-05 ; traiter les [constats de sécurité](security/audit-P2-2026-11-05.md)
+  et leurs [corrections vérifiées](security/remediation-P2-2026-11-05.md) avant raccordement P3.
+  Aucun déploiement permanent autorisé par cette validation.
+
+## Développement frontend — premier lot P3
+
+Le client typé et le proxy Next sont implémentés ; le service Compose frontend est encore prévu
+pour la suite de P3.9. `npm run dev` depuis `frontend` charge le `.env` racine et écoute seulement
+sur 127.0.0.1:3030. L'API doit être démarrée séparément, avec le même jeton ; Compose ne publie
+pas son port actuellement. Ne pas publier ce port pour contourner cette organisation.
+Les tests HTTP de ce lot ont démarré une API locale isolée sur base temporaire, jamais la base réelle.
+Voir [configuration et preuves P3.1](validation/P3.1-client-proxy.md).

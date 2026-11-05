@@ -47,7 +47,7 @@ COPY backend/alembic ./alembic
 FROM runtime-base AS api
 COPY --from=builder-api /opt/venv /opt/venv
 USER 1000:1000
-CMD ["uvicorn", "hephaistos.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+CMD ["uvicorn", "hephaistos.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--limit-concurrency", "64"]
 
 FROM runtime-base AS worker
 # Triton compile un lanceur C à la volée (torch.compile) : gcc et libc6-dev sont requis à l'exécution.

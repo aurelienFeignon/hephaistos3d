@@ -8,7 +8,16 @@
 - Erreurs : RFC 9457 `application/problem+json` — `type`, `title`, `status`, `detail`, plus `code`
   (stable, lisible par le frontend) et `errors` (détail de validation).
 - Pagination par curseur : `?limit=` (1–100, défaut 50) et `?cursor=` ; réponse `{items, next_cursor}`.
-- Toutes les routes passent par la dépendance `current_principal` (principal unique au MVP).
+- Toutes les routes passent par `current_principal` (principal unique au MVP), avec un jeton
+  `Authorization: Bearer <API_ACCESS_TOKEN>` obligatoire, sauf GET `/system/health`.
+  Docs et OpenAPI sont également protégés. Host est filtré ; les mutations vérifient Origin.
+- Les corps non multipart sont bornés à 64 Kio et leur réception à 30 s par défaut. Rejets
+  problem+json : 400 `HOST_NOT_ALLOWED`/`INVALID_CONTENT_LENGTH`, 401 `AUTHENTICATION_REQUIRED`,
+  403 `ORIGIN_NOT_ALLOWED`, 408 `REQUEST_TIMEOUT`, 413 `REQUEST_TOO_LARGE`/`UPLOAD_TOO_LARGE`.
+  Les réponses portent `Cache-Control: private, no-store` et `X-Content-Type-Options: nosniff`.
+- Changements de durcissement du 2026-11-05, avant tout consommateur P3 : `/queue` est paginée,
+  les tentatives sont bornées et `/source` sert le PNG normalisé par défaut. Les clients doivent
+  suivre les curseurs et utiliser `?original=true` pour télécharger l'original.
 - OpenAPI : `/api/v1/openapi.json` ; types TypeScript générés par `openapi-typescript`.
 
 ## 1. Système
@@ -51,7 +60,7 @@ Précisions de lecture (P2.8) :
   La disponibilité vient des heartbeats, sans contrôle local des poids ni import de CUDA.
   Sans mesure récente, la VRAM libre est `null`. Les métadonnées GPU non publiées sont `null`.
 - La liste des modèles et les listes d'artefacts/tentatives sont des tableaux ; les presets sont
-  un objet indexé par identifiant contenant `{label, values}`. `/queue` retourne `{items}` avec
+  un objet indexé par identifiant contenant `{label, values}`. `/queue` retourne `{items, next_cursor}` avec
   la représentation Generation et `position` (1 pour la première génération en attente, null
   pour RUNNING), triée par `created_at`, puis `id`, croissants.
 - La pagination des générations utilise `(created_at, id)` décroissant. Le curseur opaque reste
@@ -62,7 +71,9 @@ Précisions de lecture (P2.8) :
   Les représentations Generation/Attempt n'exposent ni chemin interne ni trace d'exception.
   Le journal de diagnostic `/logs`, protégé par le même principal, peut contenir la trace complète.
 - `/logs` exige `attempt` ≥ 1 ; `tail` vaut 500 par défaut (1–10 000). La réponse est un tableau
-  d'événements JSON. Une dernière ligne incomplète est ignorée. L'écriture est implémentée en P2.10.
+  d'événements JSON, extraits du dernier Mio au maximum (`LOGS_TAIL_MAX_BYTES`). Les lignes
+  tronquées ou invalides sont ignorées ; la réponse peut donc contenir moins de `tail` événements.
+  L'écriture est implémentée en P2.10.
 - Les fichiers sont servis à partir de noms fixes reconstruits par le serveur ; les liens
   symboliques sont refusés. `ETag` est le SHA-256 entre guillemets. Le téléchargement supporte Range.
 
@@ -83,6 +94,9 @@ Précisions de lecture (P2.8) :
   "storage": {"results_bytes": 1830000000, "free_bytes": 367000000000}
 }
 ```
+
+`storage.results_bytes` est la somme SQL des tailles des artefacts référencés ; les fichiers
+orphelins ne sont pas inclus. `free_bytes` est le minimum libre sur les volumes persistants.
 
 ## 2. Modèles
 
@@ -131,6 +145,13 @@ distribution est suspendue attend en `QUEUED` avec son `waiting_reason` (`VRAM_I
 Réponse **201** + `Location`, corps `Generation`. Un modèle indisponible n'empêche pas la création :
 la génération attend en `QUEUED` avec le motif « aucun worker pour ce modèle ».
 
+Admission de sécurité (avant lecture du multipart) : réservation partagée SQLite, par défaut un
+upload simultané et 100 générations actives/réservées. Les relances manuelles vérifient aussi
+la capacité sous le même verrou que leur transition. Saturation : 429 `UPLOAD_CAPACITY_EXCEEDED`
+ou `QUEUE_CAPACITY_EXCEEDED`. Budget disque insuffisant : 507 `STORAGE_QUOTA_EXCEEDED` ou
+`STORAGE_SPACE_INSUFFICIENT`. Réception trop lente : 408, avec libération de la réservation.
+Les détails du budget et de ses limites figurent dans [deployment.md](deployment.md).
+
 Précisions d'implémentation P2.9 :
 
 - Le flux multipart est borné avant stockage du fichier par le parseur, sans dépendre de
@@ -174,7 +195,8 @@ Précisions d'implémentation P2.9 :
              "num_gaussians": 262144, "crop_margin": null},
   "seed": 1834201,
   "source": {"filename": "chaise.jpg", "mime": "image/jpeg", "width": 3024, "height": 4032,
-             "has_alpha": false, "url": "/api/v1/generations/01JC…/source"},
+             "has_alpha": false, "url": "/api/v1/generations/01JC…/source",
+             "normalized_mime": "image/png", "original_url": "/api/v1/generations/01JC…/source?original=true"},
   "progress": {"stage": "sampling", "current": 23, "total": 50, "updated_at": "…"},
   "created_at": "…", "queued_at": "…", "started_at": "…", "finished_at": null,
   "elapsed_ms": 18450,
@@ -197,16 +219,24 @@ En cas d'échec, `error` vaut `{"code", "message", "retryable", "needs_diagnosis
 | POST | `/generations/{id}/cancel` | `PENDING`/`QUEUED` → `CANCELLED` ; `RUNNING` → demande coopérative (**202**) | 200, 202, 409 |
 | POST | `/generations/{id}/retry` | `FAILED`/`CANCELLED` → `QUEUED`, budget remis à zéro | 200, 409 |
 | DELETE | `/generations/{id}` | suppression (refusée en `RUNNING`) | 204, 409 |
-| GET | `/generations/{id}/source` | image d'origine (`Content-Disposition: inline`) | 200, 404 |
-| GET | `/generations/{id}/attempts` | historique des tentatives | 200 |
+| GET | `/generations/{id}/source` | PNG normalisé sans métadonnées, inline ; `?original=true` : original en pièce jointe | 200, 404 |
+| GET | `/generations/{id}/attempts` | historique borné : `limit=50` (1–100), `after=0` | 200 |
 | GET | `/generations/{id}/logs?attempt=N&tail=500` | lignes JSON du journal d'une tentative | 200, 404 |
 | GET | `/generations/{id}/artifacts` | liste des artefacts | 200 |
+
+Le champ `source.mime` et son SHA-256 décrivent l'original conservé ; `source.url` et
+`normalized_mime` décrivent la version normalisée affichable. L'original peut contenir des
+métadonnées sensibles et n'est téléchargé que sur demande explicite. Pour les tentatives,
+l'en-tête `X-Next-Attempt` indique la valeur de `after` de la page suivante lorsqu'elle existe.
 
 ## 4. File
 
 | Méthode | Route | Réponse |
 |---|---|---|
-| GET | `/queue` | générations `QUEUED` et `RUNNING`, ordre de prise, position, motif d'attente |
+| GET | `/queue` | générations `QUEUED` et `RUNNING`, `?limit=50&cursor=…`, `{items, next_cursor}` |
+
+La file est triée par `(created_at, id)` croissant ; `position` reste globale entre les pages.
+Les lectures de listes chargent workers et artefacts par lot, sans requête par génération.
 
 Les « jobs » de la demande initiale correspondent ici aux **tentatives** (`/generations/{id}/attempts`)
 et à la **file** (`/queue`) : une génération porte son job, il n'existe pas de ressource job séparée

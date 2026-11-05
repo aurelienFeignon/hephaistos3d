@@ -508,9 +508,15 @@ REST `/api/v1`, Pydantic, OpenAPI généré, erreurs RFC 9457. Interrogation pé
 - **Conteneurs** : non-root (`1000:1000`), `read_only`, `tmpfs`, `cap_drop: [ALL]`,
   `no-new-privileges`, aucun `privileged`. Le worker n'a **aucun réseau sortant** utile (poids hors
   ligne) ; la sonde est en `network_mode: none`.
-- **Secrets** : aucun dans les services ; le jeton HF ne sert qu'au geste d'installation, sur l'hôte.
-- **Authentification future** : dépendance FastAPI `current_principal`, colonne `owner_id` dès la
-  première migration.
+- **Authentification** : jeton `API_ACCESS_TOKEN` obligatoire côté API, validé avant lecture du
+  corps ; seule la sonde de santé est publique. Le jeton HF reste réservé à l'installation.
+  Filtrage Host et Origin, corps et réception bornés ; secret conservé côté serveur par le futur P3.
+- **Admission** : quotas partagés SQLite pour les uploads, la file et les budgets disque futurs,
+  y compris les relances manuelles ; baux temporaires dans `system_state.ingest_reservations`.
+- **Lectures** : pagination de la file et des tentatives, accès groupés SQL, suffixe borné des
+  journaux, source normalisée sans métadonnées par défaut ; sondes P0 désactivées en production.
+  Configuration et limites : [deployment.md](deployment.md), preuves :
+  [corrections de sécurité](security/remediation-P2-2026-11-05.md).
 - **Aucune modification des autres services de l'hôte** : Hephaistos lit seulement NVML ; il
   n'écrit ni dans leur configuration, ni dans leurs données.
 
@@ -547,7 +553,7 @@ variable. Référence complète et commentée : `.env.example`.
 
 - `compose.yaml` à la racine, projet `hephaistos3d`, réseau dédié ; aucun service extérieur référencé.
 - P2.11 : build et intégration CPU/GPU validés sur volumes temporaires le 2026-11-05 ; gate P2
-  en attente de revue utilisateur. Voir [deployment.md](deployment.md) et les
+  validé par l’utilisateur, audit de sécurité préalable à P3. Voir [deployment.md](deployment.md) et les
   [preuves CPU](validation/P2.11-cpu.md) et [GPU](validation/P2.11-gpu.md). `migrate`, `api` et `janitor` par défaut,
   `worker` sous profil gpu. Aucun port hôte avant le frontend P3 (ADR-0009).
 - Bind mounts séparés, créés par l'exploitant (`create_host_path: false`), racine `/data` en tmpfs

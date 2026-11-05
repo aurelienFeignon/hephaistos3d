@@ -6,30 +6,26 @@ Schema migrations are always explicit; API processes never load inference runtim
 from __future__ import annotations
 
 import logging
-import secrets
-import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import Engine
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
-from structlog.contextvars import bind_contextvars, reset_contextvars
 
+from hephaistos.api.access_log import AccessLogMiddleware
 from hephaistos.api.dependencies import current_principal
 from hephaistos.api.errors import ResourceError
 from hephaistos.api.resources import register_resources
-from hephaistos.config import Settings, load_settings
+from hephaistos.api.security import SecurityMiddleware
+from hephaistos.config import ConfigError, Settings, load_settings
 from hephaistos.observability import logging_context
 from hephaistos.persistence.database import create_database_engine
-from hephaistos.persistence.models import Artifact
 from hephaistos.system.dispatch import DispatchService, DispatchState
 
 
@@ -64,6 +60,8 @@ def create_app(
     *, engine: Engine | None = None, settings: Settings | None = None, now: Callable[[], datetime] = utc_now
 ) -> FastAPI:
     settings = settings or load_settings()
+    if settings.api_access_token is None:
+        raise ConfigError("API_ACCESS_TOKEN is required to start the API")
     owns_engine = engine is None
     database = engine if engine is not None else create_database_engine(settings.hephaistos_data_dir)
     dispatch = DispatchService(database, settings)
@@ -90,41 +88,7 @@ def create_app(
         lifespan=lifespan,
     )
 
-    @app.middleware("http")
-    async def access_log(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
-        started = time.monotonic()
-        tokens = bind_contextvars(request_id=secrets.token_hex(16))
-        response: Response | None = None
-        try:
-            response = await call_next(request)
-            return response
-        finally:
-            try:
-                route = getattr(request.scope.get("route"), "path", "unmatched")
-                fields: dict[str, Any] = dict(
-                    method=request.method,
-                    route=route,
-                    status=response.status_code if response is not None else 500,
-                    elapsed_ms=round((time.monotonic() - started) * 1000),
-                )
-                generation_id = getattr(request.state, "generation_id", None)
-                identifier = request.path_params.get("identifier")
-                if route.startswith("/api/v1/generations/"):
-                    generation_id = identifier
-                elif route.startswith("/api/v1/artifacts/") and identifier:
-                    try:
-                        with Session(database) as session:
-                            artifact = session.get(Artifact, identifier)
-                            if artifact is not None:
-                                generation_id = artifact.generation_id
-                    except SQLAlchemyError:
-                        fields["artifact_id"] = identifier
-                if generation_id:
-                    fields["generation_id"] = generation_id
-                logging.getLogger(__name__).info("http_request", extra=fields)
-            finally:
-                reset_contextvars(**tokens)
-
+    app.state.api_settings = settings
     router = APIRouter(
         prefix="/api/v1",
         dependencies=[Depends(current_principal)],
@@ -133,7 +97,7 @@ def create_app(
                 "description": "Request failed",
                 "content": {"application/problem+json": {"schema": Problem.model_json_schema()}},
             }
-            for status in (404, 409, 422, 503)
+            for status in (400, 401, 403, 404, 408, 409, 413, 422, 429, 503, 507)
         },
     )
 
@@ -167,7 +131,9 @@ def create_app(
 
     @app.exception_handler(HTTPException)
     async def http_error(_request: Request, exc: HTTPException) -> JSONResponse:
-        response = problem(exc.status_code, "HTTP Error", str(exc.detail), f"HTTP_{exc.status_code}")
+        response = problem(
+            exc.status_code, "HTTP Error", str(exc.detail), getattr(exc, "code", f"HTTP_{exc.status_code}")
+        )
         if exc.headers:
             response.headers.update(exc.headers)
         return response
@@ -178,4 +144,6 @@ def create_app(
 
     register_resources(router, database, settings, now)
     app.include_router(router)
+    app.add_middleware(AccessLogMiddleware, engine=database)
+    app.add_middleware(SecurityMiddleware, settings=settings)
     return app

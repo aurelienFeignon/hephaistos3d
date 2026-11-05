@@ -4,7 +4,6 @@ from threading import Barrier
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -13,6 +12,7 @@ from hephaistos.api.dependencies import current_principal
 from hephaistos.config import Settings
 from hephaistos.persistence.models import SystemState
 from hephaistos.system.dispatch import DispatchService
+from tests.api_client import TestClient
 from tests.unit.test_queue import NOW, attempts, claim, get, job
 from tests.unit.test_queue import queue as queue
 from tests.unit.test_supervisor import rig as rig

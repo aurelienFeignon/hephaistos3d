@@ -13,13 +13,19 @@ export async function probeFile(
   name: "splat.ply" | "camera.json",
   contentType: string,
 ): Promise<Response> {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.HEPHAISTOS_ENABLE_PROBES !== "true"
+  ) {
+    return new Response("Not found", { status: 404 });
+  }
   try {
     const body = await readFile(path.join(PROBE_DIR, PROBE_RUN, name));
     return new Response(body, {
       headers: { "Content-Type": contentType, "Cache-Control": "no-store" },
     });
   } catch {
-    return new Response(`${PROBE_RUN}/${name} introuvable dans ${PROBE_DIR}`, {
+    return new Response("Not found", {
       status: 404,
     });
   }

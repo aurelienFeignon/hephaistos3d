@@ -42,6 +42,15 @@ class LocalStorage:
     def _directory(self, area: str, identifier: str) -> Path:
         return self._check(self.root / area / validate_id(identifier))
 
+    def free_bytes(self) -> int:
+        values = []
+        for area in ("db", "sources", "results", "logs", "tmp"):
+            path = self._check(self.root / area)
+            while not path.exists():
+                path = path.parent
+            values.append(shutil.disk_usage(path).free)
+        return min(values)
+
     def source_dir(self, identifier: str) -> Path:
         return self._directory("sources", identifier)
 

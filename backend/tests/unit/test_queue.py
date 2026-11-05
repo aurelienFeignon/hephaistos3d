@@ -357,7 +357,7 @@ def test_migration_defaults_to_configured_data_directory(tmp_path: Path, monkeyp
         with engine.connect() as connection:
             assert (
                 connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar()
-                == "20261104_queue_trigger"
+                == "20261105_ingest_reservations"
             )
     finally:
         engine.dispose()

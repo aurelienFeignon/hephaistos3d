@@ -1,12 +1,12 @@
 from datetime import timedelta
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from hephaistos.api.app import create_app
 from hephaistos.config import Settings
 from hephaistos.persistence.models import Artifact, Worker
+from tests.api_client import TestClient
 from tests.unit.test_queue import NOW, claim, get, job
 from tests.unit.test_queue import queue as queue
 
@@ -152,8 +152,10 @@ def test_source_and_logs(client, queue, tmp_path):
     path = tmp_path / "sources" / identifier / "original.png"
     path.parent.mkdir(parents=True)
     path.write_bytes(b"image")
+    (path.parent / "input.png").write_bytes(b"normalized")
     response = client.get(route + "/source")
-    assert response.content == b"image"
+    assert response.content == b"normalized"
+    assert client.get(route + "/source?original=true").content == b"image"
     assert response.headers["content-disposition"].startswith("inline;")
     claim(queue)
     log = tmp_path / "logs" / identifier / "attempt-1.jsonl"

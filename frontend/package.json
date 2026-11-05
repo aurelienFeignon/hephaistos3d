@@ -3,10 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node --env-file-if-exists=../.env node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3030",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "node --env-file-if-exists=../.env node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3030",
+    "lint": "eslint",
+    "test": "vitest run",
+    "api:generate": "node scripts/generate-api.mjs",
+    "api:check": "node scripts/generate-api.mjs --check"
   },
   "dependencies": {
     "@sparkjsdev/spark": "^2.4.0",
@@ -33,5 +36,10 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    }
   }
 }

@@ -3,7 +3,6 @@ import io
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +11,7 @@ from hephaistos.api.app import create_app
 from hephaistos.config import MIB, Settings
 from hephaistos.persistence.models import Generation
 from hephaistos.storage.local import LocalStorage
+from tests.api_client import TestClient
 from tests.unit.test_api import worker
 from tests.unit.test_queue import NOW, get
 from tests.unit.test_queue import queue as queue

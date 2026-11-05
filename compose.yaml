@@ -34,6 +34,16 @@ x-environment: &environment
   UPLOAD_MAX_BYTES: "${UPLOAD_MAX_BYTES:-20971520}"
   UPLOAD_MAX_PIXELS: "${UPLOAD_MAX_PIXELS:-40000000}"
   ENABLE_FAKE_ADAPTER: "${ENABLE_FAKE_ADAPTER:-false}"
+  API_ALLOWED_HOSTS: "${API_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1],api}"
+  API_ALLOWED_ORIGINS: "${API_ALLOWED_ORIGINS:-http://localhost:3030,http://127.0.0.1:3030,http://[::1]:3030}"
+  API_JSON_MAX_BYTES: "${API_JSON_MAX_BYTES:-65536}"
+  API_REQUEST_TIMEOUT_SECONDS: "${API_REQUEST_TIMEOUT_SECONDS:-30}"
+  UPLOAD_MAX_CONCURRENT: "${UPLOAD_MAX_CONCURRENT:-1}"
+  QUEUE_MAX_ACTIVE: "${QUEUE_MAX_ACTIVE:-100}"
+  STORAGE_MAX_BYTES: "${STORAGE_MAX_BYTES:-21474836480}"
+  STORAGE_MIN_FREE_BYTES: "${STORAGE_MIN_FREE_BYTES:-1073741824}"
+  GENERATION_RESULT_BUDGET_BYTES: "${GENERATION_RESULT_BUDGET_BYTES:-134217728}"
+  LOGS_TAIL_MAX_BYTES: "${LOGS_TAIL_MAX_BYTES:-1048576}"
 
 x-runtime: &runtime
   <<: *hardening
@@ -110,9 +120,12 @@ services:
 
   api:
     <<: *runtime
+    environment:
+      <<: *environment
+      API_ACCESS_TOKEN: "${API_ACCESS_TOKEN:-}"
     build: *api-build
     image: hephaistos3d/api:p2
-    command: ["uvicorn", "hephaistos.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    command: ["uvicorn", "hephaistos.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--limit-concurrency", "64"]
     depends_on:
       migrate:
         condition: service_completed_successfully

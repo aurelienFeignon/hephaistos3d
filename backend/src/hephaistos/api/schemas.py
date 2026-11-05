@@ -31,6 +31,8 @@ class SourceView(BaseModel):
     height: int
     has_alpha: bool
     url: str
+    original_url: str
+    normalized_mime: str
 
 
 class ProgressView(BaseModel):
@@ -82,6 +84,7 @@ class QueueItem(GenerationView):
 
 class QueueView(BaseModel):
     items: list[QueueItem]
+    next_cursor: str | None
 
 
 class ModelGpu(BaseModel):

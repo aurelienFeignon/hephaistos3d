@@ -127,10 +127,9 @@ def test_logging_failure_never_changes_success(rig):
 
 
 def test_api_emits_correlated_access_logs(queue, tmp_path, capsys):
-    from fastapi.testclient import TestClient
-
     from hephaistos.api.app import create_app
     from hephaistos.config import Settings
+    from tests.api_client import TestClient
     from tests.unit.test_queue import job
 
     identifier = job(queue)
@@ -254,10 +253,9 @@ def test_nonfinite_and_nonserializable_fields_still_produce_json(tmp_path):
 
 
 def test_journal_is_available_through_http_logs(rig):
-    from fastapi.testclient import TestClient
-
     from hephaistos.api.app import create_app
     from hephaistos.config import Settings
+    from tests.api_client import TestClient
 
     supervisor, clock, _ = rig
     identifier = submit(supervisor)

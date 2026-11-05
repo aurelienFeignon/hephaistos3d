@@ -5,10 +5,8 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-import os
-import shutil
-from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -16,12 +14,13 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, StrictBool
-from sqlalchemy import Engine, and_, or_, select, text, update
+from sqlalchemy import Engine, and_, func, or_, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from hephaistos.adapters.base import ModelAdapter
 from hephaistos.adapters.registry import build_registry
+from hephaistos.api.admission import Admission
 from hephaistos.api.errors import ResourceError
 from hephaistos.api.schemas import (
     ArtifactView,
@@ -37,7 +36,7 @@ from hephaistos.api.schemas import (
 from hephaistos.api.uploads import register_upload
 from hephaistos.config import MIB, Settings
 from hephaistos.domain.errors import ErrorCode
-from hephaistos.persistence.models import Artifact, Attempt, Generation, Worker
+from hephaistos.persistence.models import Artifact, Attempt, Generation, SystemState, Worker
 from hephaistos.queue.broker import JobBroker, LeaseLost, utc
 from hephaistos.storage.deletion import DeletionConflict, delete_generation
 from hephaistos.storage.local import LocalStorage, UnsafePath
@@ -90,6 +89,35 @@ def decode_cursor(value: str) -> tuple[datetime, str]:
         raise ResourceError(422, "VALIDATION_ERROR", "Invalid pagination cursor") from exc
 
 
+@dataclass
+class ReadContext:
+    paused: bool
+    workers: list[Worker]
+    artifacts: dict[str, list[Artifact]] = field(default_factory=dict)
+
+
+def json_tail(path: Path, *, lines: int, max_bytes: int) -> list[dict[str, Any]]:
+    with path.open("rb") as stream:
+        size = stream.seek(0, 2)
+        offset = max(0, size - max_bytes)
+        stream.seek(offset)
+        data = stream.read(max_bytes)
+    if offset:
+        boundary = data.find(b"\n")
+        data = data[boundary + 1 :] if boundary >= 0 else b""
+    if data and not data.endswith(b"\n"):
+        data = data[: data.rfind(b"\n") + 1]
+    events = []
+    for line in data.splitlines()[-lines:]:
+        try:
+            value = json.loads(line)
+        except (ValueError, RecursionError):
+            continue
+        if isinstance(value, dict):
+            events.append(value)
+    return events
+
+
 class Resources:
     def __init__(self, engine: Engine, settings: Settings, now: Callable[[], datetime]) -> None:
         self.engine, self.settings, self.now = engine, settings, now
@@ -124,21 +152,37 @@ class Resources:
             and any(a.get("id") == model_id and a.get("available") is True for a in w.adapters)
         ]
 
-    def waiting_reason(self, session: Session, row: Generation) -> str | None:
+    def read_context(self, session: Session, rows: list[Generation]) -> ReadContext:
+        state = session.get(SystemState, 1)
+        context = ReadContext(state.dispatch_paused if state else self.settings.dispatch_paused, self.workers(session))
+        if rows:
+            for artifact in session.scalars(
+                select(Artifact).where(Artifact.generation_id.in_([g.id for g in rows])).order_by(Artifact.id)
+            ):
+                context.artifacts.setdefault(artifact.generation_id, []).append(artifact)
+        return context
+
+    def waiting_reason(self, row: Generation, context: ReadContext) -> str | None:
         if row.status != "QUEUED":
             return None
-        if self.dispatch.get(now=self.now()).paused:
+        if context.paused:
             return "DISPATCH_PAUSED"
         if row.not_before and utc(row.not_before) > utc(self.now()):
             return "RETRY_BACKOFF"
-        workers = self.available_workers(session, row.model_id)
+        workers = [
+            w
+            for w in context.workers
+            if w.state not in {"NO_GPU", "DEGRADED"}
+            and any(a.get("id") == row.model_id and a.get("available") is True for a in w.adapters)
+        ]
         if not workers:
             return "NO_WORKER"
         if max(w.gpu_free_bytes for w in workers) < self.settings.gpu_min_free_vram_mb * MIB:
             return "VRAM_INSUFFICIENT"
         return None
 
-    def body(self, session: Session, row: Generation) -> dict[str, Any]:
+    def body(self, session: Session, row: Generation, context: ReadContext | None = None) -> dict[str, Any]:
+        context = context or self.read_context(session, [row])
         error = None
         if row.error_code:
             try:
@@ -156,7 +200,7 @@ class Resources:
             model_id=row.model_id,
             model_version=row.model_version,
             status=row.status,
-            waiting_reason=self.waiting_reason(session, row),
+            waiting_reason=self.waiting_reason(row, context),
             preset=row.preset,
             params=row.params,
             seed=row.seed,
@@ -167,6 +211,8 @@ class Resources:
                 height=row.source_height,
                 has_alpha=row.source_has_alpha,
                 url=f"/api/v1/generations/{row.id}/source",
+                original_url=f"/api/v1/generations/{row.id}/source?original=true",
+                normalized_mime="image/png",
             ),
             progress=dict(
                 stage=row.progress_stage,
@@ -184,10 +230,7 @@ class Resources:
             next_attempt_at=stamp(row.not_before),
             error=error,
             protected=row.protected,
-            artifacts=[
-                artifact_body(a)
-                for a in session.scalars(select(Artifact).where(Artifact.generation_id == row.id).order_by(Artifact.id))
-            ],
+            artifacts=[artifact_body(a) for a in context.artifacts.get(row.id, [])],
         )
 
     def adapter(self, identifier: str) -> ModelAdapter:
@@ -236,7 +279,7 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
     service = Resources(engine, settings, now)
     register_upload(router, service)
 
-    @router.get("/system/health", response_model=Health, tags=["system"])
+    @router.get("/system/health", response_model=Health, tags=["system"], openapi_extra={"security": []})
     def health() -> dict[str, str]:
         try:
             with engine.connect() as connection:
@@ -249,26 +292,20 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
     def status() -> dict[str, Any]:
         with Session(engine) as session:
             workers = service.workers(session)
-            states = list(session.scalars(select(Generation.status).where(Generation.deleting_at.is_(None))))
-            root = service.storage.root
-            # Avoid following symlinks, including result files, when measuring managed storage.
-            results = root / "results"
-            service.storage._check(results)
-            size = 0
-            for directory, _, files in os.walk(results, followlinks=False):
-                for filename in files:
-                    path = Path(directory) / filename
-                    if not path.is_symlink() and path.is_file():
-                        size += path.stat().st_size
-            existing = root
-            while not existing.exists():
-                existing = existing.parent
+            counts = dict(
+                session.execute(
+                    select(Generation.status, func.count())
+                    .where(Generation.deleting_at.is_(None))
+                    .group_by(Generation.status)
+                ).all()
+            )
+            size = session.scalar(select(func.coalesce(func.sum(Artifact.size_bytes), 0))) or 0
             return dict(
                 version="0.1.0",
                 database={"ok": True},
                 queue=dict(
-                    queued=states.count("QUEUED"),
-                    running=states.count("RUNNING"),
+                    queued=counts.get("QUEUED", 0),
+                    running=counts.get("RUNNING", 0),
                     gpu_slots=settings.gpu_max_concurrent_jobs,
                 ),
                 dispatch=service.dispatch.get(now=now()).model_dump(mode="json"),
@@ -294,7 +331,7 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
                     )
                     for w in workers
                 ],
-                storage=dict(results_bytes=size, free_bytes=shutil.disk_usage(existing).free),
+                storage=dict(results_bytes=size, free_bytes=service.storage.free_bytes()),
             )
 
     @router.get("/models", response_model=list[ModelView], tags=["models"])
@@ -339,8 +376,9 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
             rows = list(
                 session.scalars(query.order_by(Generation.created_at.desc(), Generation.id.desc()).limit(limit + 1))
             )
+            context = service.read_context(session, rows[:limit])
             return dict(
-                items=[service.body(session, g) for g in rows[:limit]],
+                items=[service.body(session, g, context) for g in rows[:limit]],
                 next_cursor=encode_cursor(rows[limit - 1]) if len(rows) > limit else None,
             )
 
@@ -370,7 +408,9 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
                 running = service.broker.cancel(identifier, now=now())
                 response.status_code = 202 if running else 200
             else:
-                service.broker.retry(identifier, now=now())
+                service.broker.retry(
+                    identifier, now=now(), admit=lambda session: Admission(engine, settings).check(session, now=now())
+                )
         except LeaseLost as exc:
             raise ResourceError(409, "INVALID_TRANSITION", "Generation state does not allow this action") from exc
         return generation(identifier)
@@ -399,20 +439,44 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
         return Response(status_code=204)
 
     @router.get("/generations/{identifier}/source", response_class=FileResponse, tags=["generations"])
-    def source(identifier: str) -> FileResponse:
+    def source(identifier: str, original: bool = False) -> FileResponse:
         with Session(engine) as session:
             row = service.generation(session, identifier)
             try:
                 fmt = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"}[row.source_mime]
-                path = service.file(service.storage.source_file(row.id, fmt))
+                path = service.file(
+                    service.storage.source_file(row.id, fmt)
+                    if original
+                    else service.storage._check(service.storage.source_dir(row.id) / "input.png")
+                )
             except (UnsafePath, FileNotFoundError, KeyError) as exc:
                 raise ResourceError(404, "SOURCE_NOT_FOUND", "Source file not found") from exc
-            return FileResponse(path, media_type=row.source_mime, filename=path.name, content_disposition_type="inline")
+            return FileResponse(
+                path,
+                media_type=row.source_mime if original else "image/png",
+                filename=path.name,
+                content_disposition_type="attachment" if original else "inline",
+            )
 
     @router.get("/generations/{identifier}/attempts", response_model=list[AttemptView], tags=["generations"])
-    def attempts(identifier: str) -> list[dict[str, Any]]:
+    def attempts(
+        identifier: str,
+        response: Response,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        after: Annotated[int, Query(ge=0)] = 0,
+    ) -> list[dict[str, Any]]:
         with Session(engine) as session:
             service.generation(session, identifier)
+            rows = list(
+                session.scalars(
+                    select(Attempt)
+                    .where(Attempt.generation_id == identifier, Attempt.number > after)
+                    .order_by(Attempt.number)
+                    .limit(limit + 1)
+                )
+            )
+            if len(rows) > limit:
+                response.headers["X-Next-Attempt"] = str(rows[limit - 1].number)
             return [
                 dict(
                     id=a.id,
@@ -430,9 +494,7 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
                     peak_vram_bytes=a.peak_vram_bytes,
                     free_vram_at_start_bytes=a.free_vram_at_start_bytes,
                 )
-                for a in session.scalars(
-                    select(Attempt).where(Attempt.generation_id == identifier).order_by(Attempt.number)
-                )
+                for a in rows[:limit]
             ]
 
     @router.get("/generations/{identifier}/logs", tags=["generations"])
@@ -446,19 +508,9 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
                 raise ResourceError(404, "ATTEMPT_NOT_FOUND", "Attempt not found")
             try:
                 path = service.storage.log_file(identifier, attempt)
-                with path.open() as stream:
-                    lines = deque(stream, maxlen=tail)
+                return json_tail(path, lines=tail, max_bytes=settings.logs_tail_max_bytes)
             except (UnsafePath, FileNotFoundError) as exc:
                 raise ResourceError(404, "LOG_NOT_FOUND", "Attempt log not found") from exc
-            events = []
-            for line in lines:
-                try:
-                    event = json.loads(line)
-                except ValueError:
-                    continue  # An active writer may not have completed the last record.
-                if isinstance(event, dict):
-                    events.append(event)
-            return events
 
     @router.get("/generations/{identifier}/artifacts", response_model=list[ArtifactView], tags=["generations"])
     def artifacts(identifier: str) -> list[dict[str, Any]]:
@@ -494,17 +546,38 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
             )
 
     @router.get("/queue", response_model=QueueView, tags=["queue"])
-    def queue() -> dict[str, Any]:
-        with Session(engine) as session:
-            rows = session.scalars(
-                select(Generation)
-                .where(Generation.deleting_at.is_(None), Generation.status.in_(["QUEUED", "RUNNING"]))
-                .order_by(Generation.created_at, Generation.id)
+    def queue(limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None) -> dict[str, Any]:
+        query = select(Generation).where(Generation.deleting_at.is_(None), Generation.status.in_(["QUEUED", "RUNNING"]))
+        date, identifier = decode_cursor(cursor) if cursor else (None, None)
+        if date is not None:
+            query = query.where(
+                or_(Generation.created_at > date, and_(Generation.created_at == date, Generation.id > identifier))
             )
+        with Session(engine) as session:
+            rows = list(session.scalars(query.order_by(Generation.created_at, Generation.id).limit(limit + 1)))
             position = 0
+            if date is not None:
+                position = (
+                    session.scalar(
+                        select(func.count())
+                        .select_from(Generation)
+                        .where(
+                            Generation.status == "QUEUED",
+                            Generation.deleting_at.is_(None),
+                            or_(
+                                Generation.created_at < date,
+                                and_(Generation.created_at == date, Generation.id <= identifier),
+                            ),
+                        )
+                    )
+                    or 0
+                )
+            context = service.read_context(session, rows[:limit])
             items = []
-            for row in rows:
+            for row in rows[:limit]:
                 if row.status == "QUEUED":
                     position += 1
-                items.append(dict(service.body(session, row), position=position if row.status == "QUEUED" else None))
-            return {"items": items}
+                items.append(
+                    dict(service.body(session, row, context), position=position if row.status == "QUEUED" else None)
+                )
+            return dict(items=items, next_cursor=encode_cursor(rows[limit - 1]) if len(rows) > limit else None)

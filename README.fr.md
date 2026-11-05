@@ -6,8 +6,8 @@ Application web auto-hébergée qui transforme **une image 2D en objet 3D** (Gau
 avec le modèle [Idol](https://github.com/speridlabs/idol-sdk) de Sperid Labs, sur votre propre GPU
 NVIDIA.
 
-> **État : en développement.** Les gates P0 et P1 sont validés ; le backend P2 est implémenté,
-> son intégration Compose CPU/GPU est validée. Le gate P2 attend sa revue. Il n'y a pas encore d'interface utilisable. Plan et critères :
+> **État : en développement.** Les gates P0, P1 et P2 sont validés ; le backend P2 est implémenté,
+> son intégration Compose CPU/GPU est validée. Les [constats de sécurité sont corrigés](docs/security/remediation-P2-2026-11-05.md) avant P3. P3 commence avec le client typé et le proxy sécurisé ; les écrans Studio restent à construire. Plan et critères :
 > [`docs/development-plan.md`](docs/development-plan.md).
 
 ## Ce que fait le projet

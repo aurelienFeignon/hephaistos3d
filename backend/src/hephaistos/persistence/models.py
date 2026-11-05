@@ -144,6 +144,7 @@ class SystemState(Base):
     __tablename__ = "system_state"
     __table_args__ = (CheckConstraint("id = 1", name="ck_system_state_singleton"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ingest_reservations: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, server_default="{}")
     dispatch_paused: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     paused_reason: Mapped[str | None] = mapped_column(Text)
     paused_by: Mapped[str | None] = mapped_column(enum_type("paused_by", "user", "config", "system"))

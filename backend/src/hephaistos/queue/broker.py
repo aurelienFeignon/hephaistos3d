@@ -354,7 +354,7 @@ class JobBroker:
             )
             return True
 
-    def retry(self, identifier: str, *, now: datetime) -> None:
+    def retry(self, identifier: str, *, now: datetime, admit: Callable[[Session], object] | None = None) -> None:
         with self._transaction() as session:
             generation = session.get(Generation, identifier)
             if (
@@ -364,6 +364,8 @@ class JobBroker:
             ):
                 # Ingestion failure has no published inference input; resubmit the image.
                 raise LeaseLost(identifier)
+            if admit is not None:
+                admit(session)
             self._write(
                 session,
                 generation,

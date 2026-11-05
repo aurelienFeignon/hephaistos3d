@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
 import secrets
 import shutil
 from collections.abc import AsyncGenerator
+from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, BinaryIO
 
@@ -20,12 +23,13 @@ from starlette.formparsers import MultiPartException, MultiPartParser
 
 from hephaistos.adapters.base import AdapterError
 from hephaistos.adapters.schema import effective_params
+from hephaistos.api.admission import LEASE_SECONDS, Admission
 from hephaistos.api.dependencies import Principal, current_principal
 from hephaistos.api.errors import ResourceError
 from hephaistos.api.schemas import GenerationView
 from hephaistos.config import MIB
 from hephaistos.imaging import ImageRejected, RejectReason, normalize_image
-from hephaistos.persistence.models import Generation, Worker, new_id
+from hephaistos.persistence.models import Generation, SystemState, Worker, new_id
 from hephaistos.queue.broker import utc
 from hephaistos.storage.local import UnsafePath
 
@@ -154,7 +158,7 @@ class IngestService:
         if budget is not None and required > budget:
             raise ResourceError(422, "INSUFFICIENT_VRAM_BUDGET", "Model parameters exceed the GPU memory budget")
 
-    def create(self, form: FormData, principal: Principal) -> str:
+    def create(self, form: FormData, principal: Principal, reservation: str | None = None) -> str:
         service = self.resources
         model_id = str(form["model_id"])
         adapter = service.adapter(model_id)
@@ -191,7 +195,13 @@ class IngestService:
             received.rename(staged / service.storage.source_file(identifier, info.source_format).name)
             filename = (file.filename or "image").replace("\\", "/").rsplit("/", 1)[-1]
             filename = "".join(c for c in filename if c.isprintable())[:255] or "image"
-            with Session(service.engine) as session, session.begin():
+            with Session(service.engine) as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                if reservation is not None:
+                    state = session.get(SystemState, 1)
+                    expiry = state.ingest_reservations.get(reservation) if state else None
+                    if expiry is None or utc(datetime.fromisoformat(expiry)) <= utc(service.now()):
+                        raise ResourceError(503, "UPLOAD_LEASE_LOST", "Upload admission lease expired")
                 session.add(
                     Generation(
                         id=identifier,
@@ -212,6 +222,7 @@ class IngestService:
                         max_retries=service.settings.job_max_retries,
                     )
                 )
+                session.commit()
             # A crash or database failure after this point leaves PENDING for janitor recovery.
             retain_for_recovery = True
             self.finalize(identifier, info.source_format)
@@ -259,6 +270,7 @@ class IngestService:
 
 def register_upload(router: APIRouter, resources: Resources) -> None:
     ingest = IngestService(resources)
+    admission = Admission(resources.engine, resources.settings)
     upload_schema = dict(
         type="object",
         required=["image", "model_id"],
@@ -290,13 +302,27 @@ def register_upload(router: APIRouter, resources: Resources) -> None:
     async def create(
         request: Request, response: Response, principal: Annotated[Principal, Depends(current_principal)]
     ) -> dict[str, Any]:
-        form = await receive(request, resources)
+        reservation = await run_in_threadpool(admission.reserve, now=resources.now())
+
+        async def renew() -> None:
+            while True:
+                await asyncio.sleep(LEASE_SECONDS / 3)
+                await run_in_threadpool(admission.renew, reservation, now=resources.now())
+
+        heartbeat = asyncio.create_task(renew())
+        form: FormData | None = None
         try:
-            identifier = await run_in_threadpool(ingest.create, form, principal)
+            form = await receive(request, resources)
+            identifier = await run_in_threadpool(ingest.create, form, principal, reservation)
             request.state.generation_id = identifier
             with Session(resources.engine) as session:
                 body = resources.body(session, resources.generation(session, identifier))
             response.headers["Location"] = f"/api/v1/generations/{identifier}"
             return body
         finally:
-            await form.close()
+            if form is not None:
+                await form.close()
+            heartbeat.cancel()
+            with suppress(asyncio.CancelledError, ResourceError):
+                await heartbeat
+            await run_in_threadpool(admission.release, reservation)

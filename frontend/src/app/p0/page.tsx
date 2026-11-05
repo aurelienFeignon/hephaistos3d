@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { SplatViewer } from "@/components/SplatViewer";
 import { PROBE_RUN } from "./probeFile";
 
@@ -6,6 +7,9 @@ export const metadata: Metadata = { title: "Gate P0 — visualisation" };
 
 // G0.7 : un PLY produit par la sonde s'affiche dans Spark. Ce n'est pas l'interface (P4).
 export default function P0Page() {
+  if (process.env.NODE_ENV === "production" || process.env.HEPHAISTOS_ENABLE_PROBES !== "true") {
+    notFound();
+  }
   return (
     <main
       style={{
