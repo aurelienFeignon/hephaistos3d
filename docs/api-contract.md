@@ -158,7 +158,7 @@ Précisions d'implémentation P2.9 :
   n'a pas été publiée : il faut soumettre à nouveau l'image. Une erreur disque avant création
   de la ligne retourne 503 `INGEST_FAILED`, sans ressource créée.
 - Les rejets nettoient leurs temporaires ; un arrêt ou échec SQL après création de `PENDING`
-  conserve les fichiers nécessaires à la reprise du janitor (P2.7, encore à implémenter).
+  conserve les fichiers nécessaires à la reprise du janitor (P2.7).
 
 
 ### Ressource `Generation`

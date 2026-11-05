@@ -138,11 +138,11 @@ Implémentation P2.5 :
   avant commit ne publie donc rien ; une erreur de promotion annule les écritures SQL.
   Les lecteurs WAL voient encore `RUNNING` jusqu'au commit.
 - Le disque et SQLite ne partagent pas de transaction : un arrêt brutal après promotion et avant
-  commit peut laisser un résultat non référencé. Le janitor/superviseur devra le réconcilier sous
-  contrôle du bail avant une nouvelle promotion. P2.6 le fait lors du succès suivant : le broker
+  commit peut laisser un résultat non référencé. Sa réconciliation est sérialisée avec les
+  promotions et contrôles de bail. P2.6 le fait lors du succès suivant : le broker
   refuse des artefacts déjà référencés, puis le superviseur remplace les résultats orphelins
-  sous le même verrou et avec un bail valide. Le janitor gardera le nettoyage hors nouvelle
-  génération (P2.7).
+  sous le même verrou et avec un bail valide. Le janitor P2.7 nettoie aussi les résultats non
+  référencés de plus de 24 h, hors PENDING/RUNNING, sous verrou SQLite.
 - `recover_expired` et `interrupt` sont des primitives transactionnelles ; leur déclenchement,
   l'effacement des sorties abandonnées et les métriques worker appartiennent à P2.6/P2.7.
   Le heartbeat valide le bail et renvoie l'indicateur d'annulation coopérative.
@@ -442,6 +442,37 @@ promeut les sources et passe QUEUED avant commit. Un crash SQL après publicatio
 et les sources pour réconciliation par le janitor. Un échec de publication marque FAILED /
 INGEST_FAILED ; cette génération sans entrée publiée nécessite une nouvelle soumission,
 le broker refuse une relance d'inférence. Aucun accès CUDA ou sonde GPU dans l'API.
+
+### 8.1 Janitor (P2.7)
+
+`python -m hephaistos.janitor` exécute les reprises toutes les
+`min(30, JOB_LEASE_SECONDS / 3)` secondes ; `--once` effectue un cycle complet puis quitte.
+Aucune création de schéma ni import CUDA. SIGTERM/SIGINT interrompent l'attente ; le cycle
+transactionnel en cours se termine avant sortie. L'intégration Compose reste P2.11.
+
+- Chaque tick reprend les baux expirés via le broker, réconcilie les PENDING de plus de 5 min
+  et rejoue les suppressions marquées. Une erreur sur un élément est journalisée et ne bloque
+  pas les autres. L'échec de la lecture initiale de la base interrompt le cycle.
+- La reprise PENDING prend BEGIN IMMEDIATE et revérifie statut, âge et deleting_at. Les deux
+  fichiers attendus doivent être réguliers, non vides et sans symlinks ; le SHA-256 de l'original
+  doit correspondre à la ligne. Les sources déjà publiées sont réutilisées ; sinon les sources
+  complètes du staging sont promues. La génération devient QUEUED, ou FAILED / INGEST_FAILED
+  si les données sont incomplètes/corrompues ou la publication impossible.
+- La maintenance complète s'exécute au démarrage puis toutes les
+  `STORAGE_CLEANUP_INTERVAL_HOURS`. Elle applique la rétention aux seuls statuts terminaux,
+  non protégés et dont finished_at dépasse l'âge configuré ; **0 désactive la rétention**.
+  L'UPDATE qui pose deleting_at revérifie ces critères pour fermer les courses avec PATCH/retry.
+- Les répertoires orphelins, les temporaires inactifs et les copies cachées de promotion sont
+  supprimés après 24 h. La date de chaque descendant est contrôlée ; un fichier récent préserve
+  l'ensemble. Les ULID et chemins sont vérifiés, les symlinks refusés. Les noms inconnus restent
+  intacts. Le nettoyage prend BEGIN IMMEDIATE pour revérifier propriétaires et références :
+  aucun fichier PENDING/RUNNING, aucune source/journal appartenant à une génération existante,
+  aucun résultat référencé par un artefact n'est supprimé par cette collecte.
+- Les workers sans heartbeat depuis plus de 7 jours sont purgés, sauf s'ils possèdent encore
+  une génération RUNNING. Les tentatives historiques sont conservées.
+- `janitor-status.json`, publié atomiquement dans le répertoire de données, contient at, ok,
+  error_count et les compteurs du dernier cycle. Un cycle partiellement échoué publie ok=false ;
+  une panne globale laisse le heartbeat précédent vieillir. La vérification Compose suivra en P2.11.
 
 ## 9. Visualisation et exports
 
