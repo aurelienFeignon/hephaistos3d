@@ -38,9 +38,32 @@
   aux superviseurs `DEGRADED` de remettre à zéro leur fenêtre de morts et de reprendre les prises.
   Une nouvelle panne peut de nouveau suspendre la distribution.
 
-Implémenté en P2.6b : application factory `hephaistos.api.app:create_app`, GET/PUT dispatch,
-validation et dépendance `current_principal` (principal unique local). Les autres routes de ce
-contrat sont encore à implémenter en P2.8 ; aucune migration automatique au démarrage.
+Implémenté en P2.6b puis P2.8 : factory `hephaistos.api.app:create_app`, routes système,
+modèles, consultation et actions sur les générations, file, sources, tentatives, lecture des
+journaux et artefacts. Toutes utilisent `current_principal` (principal unique local), des
+réponses typées OpenAPI et des erreurs problem+json. Aucune migration automatique au démarrage.
+`POST /generations` est implémenté en P2.9 (upload borné) ; les exports restent réservés à P4.
+
+Précisions de lecture (P2.8) :
+
+- Les workers dont le heartbeat date d'au moins `JOB_LEASE_SECONDS`, ainsi que les workers
+  `STOPPING`, sont exclus de l'état actif. `NO_GPU` et `DEGRADED` ne rendent pas un modèle disponible.
+  La disponibilité vient des heartbeats, sans contrôle local des poids ni import de CUDA.
+  Sans mesure récente, la VRAM libre est `null`. Les métadonnées GPU non publiées sont `null`.
+- La liste des modèles et les listes d'artefacts/tentatives sont des tableaux ; les presets sont
+  un objet indexé par identifiant contenant `{label, values}`. `/queue` retourne `{items}` avec
+  la représentation Generation et `position` (1 pour la première génération en attente, null
+  pour RUNNING), triée par `created_at`, puis `id`, croissants.
+- La pagination des générations utilise `(created_at, id)` décroissant. Le curseur opaque reste
+  utilisable après suppression de sa génération d'ancrage. Les filtres s'appliquent à chaque page.
+- Priorité des motifs d'attente : suspension, délai de relance, absence de worker disponible,
+  VRAM libre insuffisante. Un job prêt à être pris peut avoir un motif null.
+- Les générations marquées pour suppression sont invisibles, y compris leurs artefacts.
+  Les chemins internes et traces d'exception des tentatives ne sont pas exposés.
+- `/logs` exige `attempt` ≥ 1 ; `tail` vaut 500 par défaut (1–10 000). La réponse est un tableau
+  d'événements JSON. Une dernière ligne incomplète est ignorée. L'écriture des journaux sera P2.10.
+- Les fichiers sont servis à partir de noms fixes reconstruits par le serveur ; les liens
+  symboliques sont refusés. `ETag` est le SHA-256 entre guillemets. Le téléchargement supporte Range.
 
 ```json
 {
@@ -106,6 +129,37 @@ distribution est suspendue attend en `QUEUED` avec son `waiting_reason` (`VRAM_I
 
 Réponse **201** + `Location`, corps `Generation`. Un modèle indisponible n'empêche pas la création :
 la génération attend en `QUEUED` avec le motif « aucun worker pour ce modèle ».
+
+Précisions d'implémentation P2.9 :
+
+- Le flux multipart est borné avant stockage du fichier par le parseur, sans dépendre de
+  `Content-Length`. Le fichier accepte exactement `UPLOAD_MAX_BYTES` ; le premier dépassement
+  interrompt la lecture (413). Le budget du corps entier comprend 256 Kio supplémentaires pour
+  l'enveloppe multipart. Les champs texte sont limités à 16 Kio chacun, les doublons et champs
+  inconnus refusés (422). La borne de transport peut interrompre le flux avant la validation du
+  modèle si ce champ arrive après le fichier. Le principal est vérifié avant consommation du corps.
+- `seed` vaut `random` ou un entier entre 0 et 2 147 483 647 inclus. La valeur aléatoire tirée
+  par le serveur et tous les paramètres effectifs sont persistés. Le preset par défaut est
+  `balanced` si présent, sinon le premier preset déclaré. Les erreurs de paramètres incluent `errors`.
+- Le format décodé, et non le nom ni le MIME déclaré, détermine le fichier original conservé.
+  `input.png` applique EXIF et retire les métadonnées ; les dimensions exposées sont celles
+  de cette image normalisée. Le nom fourni reste une métadonnée d'affichage, réduite au nom
+  final sans chemin ni caractères de contrôle. Le SHA-256 porte sur l'original exact reçu.
+- Le budget VRAM utilise le plafond configuré et, si disponible, le plus grand total publié
+  dans les heartbeats persistés (y compris un worker arrêté). Le budget connu le plus contraignant
+  s'applique. Sans plafond ni total connu, la soumission est acceptée en attente : l'API ne sonde
+  pas le GPU. La VRAM libre n'est jamais utilisée pour refuser définitivement une soumission.
+- Après validation, la ligne `PENDING` est persistée, puis promotion et transition `QUEUED`
+  sont sérialisées sous `BEGIN IMMEDIATE`, avec contrôle du statut et de `deleting_at` avant
+  toute promotion. Une annulation/suppression concurrente provoque 409 sans remise en file.
+- Si la promotion échoue, la ressource créée est retournée en 201 avec `status=FAILED`,
+  `INGEST_FAILED`, `needs_diagnosis=true` et `queued_at=null`. Les détails disque ne sont pas
+  exposés. Cette erreur ne peut pas être relancée via `/retry` (409) car l'entrée d'inférence
+  n'a pas été publiée : il faut soumettre à nouveau l'image. Une erreur disque avant création
+  de la ligne retourne 503 `INGEST_FAILED`, sans ressource créée.
+- Les rejets nettoient leurs temporaires ; un arrêt ou échec SQL après création de `PENDING`
+  conserve les fichiers nécessaires à la reprise du janitor (P2.7, encore à implémenter).
+
 
 ### Ressource `Generation`
 
@@ -180,4 +234,4 @@ l'onglet est masqué. SSE (`/events`) est réservé à une version ultérieure s
 
 `MODEL_NOT_FOUND`, `UPLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`, `IMAGE_TOO_LARGE`,
 `IMAGE_UNREADABLE`, `PARAMS_INVALID`, `INSUFFICIENT_VRAM_BUDGET`, `GENERATION_NOT_FOUND`, `INVALID_TRANSITION`,
-`GENERATION_RUNNING`, `ARTIFACT_NOT_FOUND`, `ATTEMPT_NOT_FOUND`.
+`GENERATION_RUNNING`, `ARTIFACT_NOT_FOUND`, `ATTEMPT_NOT_FOUND`, `INGEST_FAILED`, `VALIDATION_ERROR`.

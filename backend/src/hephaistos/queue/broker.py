@@ -357,7 +357,12 @@ class JobBroker:
     def retry(self, identifier: str, *, now: datetime) -> None:
         with self._transaction() as session:
             generation = session.get(Generation, identifier)
-            if generation is None or generation.status not in {"FAILED", "CANCELLED"}:
+            if (
+                generation is None
+                or generation.status not in {"FAILED", "CANCELLED"}
+                or generation.error_code == ErrorCode.INGEST_FAILED
+            ):
+                # Ingestion failure has no published inference input; resubmit the image.
                 raise LeaseLost(identifier)
             self._write(
                 session,
@@ -375,15 +380,18 @@ class JobBroker:
                 **self._clear_lease(),
             )
 
-    def cancel(self, identifier: str, *, now: datetime) -> None:
+    def cancel(self, identifier: str, *, now: datetime) -> bool:
         with self._transaction() as session:
             generation = session.get(Generation, identifier)
             if generation is None or generation.status not in {"PENDING", "QUEUED", "RUNNING"}:
                 raise LeaseLost(identifier)
             if generation.status == "RUNNING":
                 self._write(session, generation, cancel_requested_at=utc(now))
+                return True
             else:
                 self._write(session, generation, status="CANCELLED", finished_at=utc(now), **self._clear_lease())
+
+            return False
 
     def finish_cancel(self, lease: Lease, *, now: datetime) -> None:
         with self._transaction() as session:

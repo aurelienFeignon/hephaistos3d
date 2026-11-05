@@ -1,6 +1,6 @@
 """API factory. Run with uvicorn hephaistos.api.app:create_app --factory.
 
-This first API slice exposes dispatch only; schema migrations are always explicit.
+Schema migrations are always explicit; API processes never load inference runtimes.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from sqlalchemy import Engine
 from starlette.exceptions import HTTPException
 
 from hephaistos.api.dependencies import current_principal
+from hephaistos.api.errors import ResourceError
+from hephaistos.api.resources import register_resources
 from hephaistos.config import Settings, load_settings
 from hephaistos.persistence.database import create_database_engine
 from hephaistos.system.dispatch import DispatchService, DispatchState
@@ -75,7 +77,17 @@ def create_app(
         redoc_url=None,
         lifespan=lifespan,
     )
-    router = APIRouter(prefix="/api/v1", dependencies=[Depends(current_principal)])
+    router = APIRouter(
+        prefix="/api/v1",
+        dependencies=[Depends(current_principal)],
+        responses={
+            status: {
+                "description": "Request failed",
+                "content": {"application/problem+json": {"schema": Problem.model_json_schema()}},
+            }
+            for status in (404, 409, 422, 503)
+        },
+    )
 
     @router.get("/system/dispatch", response_model=DispatchState, tags=["system"])
     def get_dispatch() -> DispatchState:
@@ -112,5 +124,10 @@ def create_app(
             response.headers.update(exc.headers)
         return response
 
+    @app.exception_handler(ResourceError)
+    async def resource_error(_request: Request, exc: ResourceError) -> JSONResponse:
+        return problem(exc.status, "Resource error", exc.detail, exc.code, errors=exc.errors)
+
+    register_resources(router, database, settings, now)
     app.include_router(router)
     return app

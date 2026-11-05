@@ -434,6 +434,15 @@ injectables (`GPU_OOM`, `NO_OBJECT`, `CUDA_ERROR`, `CRASH`, `HANG`).
 - Rétention : génération terminale, non protégée, plus vieille que `STORAGE_RETENTION_DAYS`
   (0 = désactivée). Jamais `QUEUED`, `RUNNING` ni protégée.
 
+P2.9 : le parseur multipart borne les octets du fichier avant écriture dans le spool temporaire,
+puis le service d'ingestion copie par blocs de 64 Kio, calcule le SHA-256, normalise et valide
+les paramètres et le budget mémoire. Les rejets ne créent aucune ligne. Après création persistée
+de PENDING, la finalisation prend BEGIN IMMEDIATE, vérifie PENDING et l'absence de deleting_at,
+promeut les sources et passe QUEUED avant commit. Un crash SQL après publication laisse PENDING
+et les sources pour réconciliation par le janitor. Un échec de publication marque FAILED /
+INGEST_FAILED ; cette génération sans entrée publiée nécessite une nouvelle soumission,
+le broker refuse une relance d'inférence. Aucun accès CUDA ou sonde GPU dans l'API.
+
 ## 9. Visualisation et exports
 
 ### 9.1 Visualiseur (ADR-0006)
