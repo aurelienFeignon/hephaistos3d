@@ -8,6 +8,7 @@
     "start": "node --env-file-if-exists=../.env node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3030",
     "lint": "eslint",
     "test": "vitest run",
+    "e2e": "next build && playwright test",
     "api:generate": "node scripts/generate-api.mjs",
     "api:check": "node scripts/generate-api.mjs --check"
   },

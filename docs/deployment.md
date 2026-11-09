@@ -166,5 +166,7 @@ sans ajouter curl ni des outils GPU.
 doit être démarrée séparément, avec le même jeton ; ne pas publier son port pour contourner cette
 organisation. En Compose, le service `frontend` utilise `http://api:8000`. Avec un autre
 `HEPHAISTOS_PORT` ou une autre adresse, adapter `FRONTEND_ALLOWED_ORIGINS` et `API_ALLOWED_ORIGINS`.
+`npm run e2e` joue les parcours Playwright sur une pile jetable, sans GPU (`uv sync --frozen` requis dans
+`backend`, puis `npx playwright install chromium`).
 Les tests HTTP de ce lot ont démarré une API locale isolée sur base temporaire, jamais la base réelle.
 Voir [configuration et preuves P3.1](validation/P3.1-client-proxy.md).

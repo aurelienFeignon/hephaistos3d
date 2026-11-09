@@ -70,3 +70,30 @@ jobs:
         run: npx next typegen && npx tsc --noEmit
       - name: Tests unitaires frontend
         run: npm test
+
+  # Pile complète avec l'adaptateur factice : ni GPU, ni poids, ni secret.
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Dépendances du backend
+        working-directory: backend
+        run: uv sync --frozen
+      - run: npm ci
+      - name: Navigateur
+        run: npx playwright install --with-deps chromium
+      - name: Parcours de bout en bout
+        run: npm run e2e

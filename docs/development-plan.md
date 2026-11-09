@@ -224,8 +224,8 @@ jour conditionnelle sur le bail).
 [P3.2](validation/P3.2-studio-layout.md), [P3.3](validation/P3.3-image-upload.md),
 [P3.4](validation/P3.4-generation-form.md), [P3.5](validation/P3.5-queue-progress.md),
 [P3.6](validation/P3.6-library-detail.md), [P3.7](validation/P3.7-generation-actions.md) et
-[P3.8](validation/P3.8-system-status.md) et [P3.9](validation/P3.9-frontend-compose.md) ;
-[gate P3 en cours](gates/P3.md). Prochaine tâche : parcours Playwright A3.1.
+[P3.8](validation/P3.8-system-status.md), [P3.9](validation/P3.9-frontend-compose.md) et
+[A3.1](validation/A3.1-playwright.md) ; [gate P3 en cours](gates/P3.md). Prochaine tâche : A3.2, avec accord GPU et réseau.
 
 | Tâche | Contenu |
 |---|---|
