@@ -5,7 +5,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "server-only": fileURLToPath(new URL("./tests/server-only.ts", import.meta.url)) },
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "server-only": fileURLToPath(new URL("./tests/server-only.ts", import.meta.url)),
+    },
   },
   // Node par défaut ; les tests de composants déclarent `@vitest-environment jsdom`.
   test: { environment: "node", include: ["src/**/*.test.{ts,tsx}"] },

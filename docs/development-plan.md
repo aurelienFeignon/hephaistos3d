@@ -220,9 +220,10 @@ jour conditionnelle sur le bail).
 
 **Prérequis** : P2 validé ; D5 tranché.
 
-**Avancement au 2026-11-09** : P3.1 et P3.2 implémentés et vérifiés ; proxy sécurisé de P3.9 avancé,
+**Avancement au 2026-11-09** : P3.1, P3.2 et P3.3 implémentés et vérifiés ; proxy sécurisé de P3.9 avancé,
 service Compose/image standalone restant à faire. Preuves [P3.1](validation/P3.1-client-proxy.md) et
-[P3.2](validation/P3.2-studio-layout.md) ; [gate P3 en cours](gates/P3.md). Prochaine tâche : P3.3.
+[P3.2](validation/P3.2-studio-layout.md) et [P3.3](validation/P3.3-image-upload.md) ;
+[gate P3 en cours](gates/P3.md). Prochaine tâche : P3.4.
 
 | Tâche | Contenu |
 |---|---|

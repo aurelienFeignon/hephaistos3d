@@ -1,6 +1,7 @@
+import { ImagePicker } from "@/components/studio/ImagePicker";
 import { StudioShell } from "@/components/studio/StudioShell";
 
-// Emplacements de P3.2 : les données réelles arrivent avec P3.3 à P3.8, sans valeur factice d'ici là.
+// Emplacements neutres : les données réelles arrivent avec P3.4 à P3.8, sans valeur factice d'ici là.
 export default function StudioPage() {
   return (
     <StudioShell
@@ -13,7 +14,8 @@ export default function StudioPage() {
       }
       panel={
         <>
-          <p className="text-ink-muted">L&apos;import d&apos;image et les réglages s&apos;afficheront ici.</p>
+          <ImagePicker />
+          <p className="text-ink-muted">Les réglages s&apos;afficheront ici.</p>
           <button
             type="button"
             disabled
