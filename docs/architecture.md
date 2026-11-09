@@ -388,7 +388,7 @@ injectables (`GPU_OOM`, `NO_OBJECT`, `CUDA_ERROR`, `CRASH`, `HANG`).
 ## 7. Paramètres, préréglages et formulaire
 
 - Paramètres = modèle Pydantic de l'adaptateur ; `GET /models/{id}/schema` publie son JSON Schema
-  enrichi de `x-ui` (`widget`, `group`, `advanced`, `order`, `unit`).
+  enrichi de `x-ui` (`widget`, `group`, `advanced`, `order`, `unit`, `labels` pour nommer les valeurs d'un `enum`).
 - Le frontend contient **un** moteur de formulaire générique limité à un sous-ensemble déclaré
   (`integer`, `number`, `boolean`, `string` + `enum`, `minimum`, `maximum`, `multipleOf`, `default`,
   nullable). Un test backend refuse tout schéma qui en sortirait.

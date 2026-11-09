@@ -18,7 +18,7 @@ function formatSize(bytes: number) {
   return bytes < MIB ? `${Math.ceil(bytes / 1024)} Ko` : `${oneDecimal.format(bytes / MIB)} Mo`;
 }
 
-export function ImagePicker({ decode = decodeInBrowser }: { decode?: ImageDecoder }) {
+export function ImagePicker({ decode = decodeInBrowser, onChange }: { decode?: ImageDecoder; onChange?: (file: File | null) => void }) {
   const [image, setImage] = useState<InspectedImage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
@@ -39,6 +39,7 @@ export function ImagePicker({ decode = decodeInBrowser }: { decode?: ImageDecode
     setImage(null);
     setError(null);
     setReading(false);
+    onChange?.(null);
   }
 
   async function pick(file: File) {
@@ -51,8 +52,10 @@ export function ImagePicker({ decode = decodeInBrowser }: { decode?: ImageDecode
       return;
     }
     setReading(false);
-    if (result.ok) setImage(result.image);
-    else setError(result.error);
+    if (result.ok) {
+      setImage(result.image);
+      onChange?.(file);
+    } else setError(result.error);
   }
 
   function drop(event: DragEvent) {

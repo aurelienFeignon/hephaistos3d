@@ -82,7 +82,7 @@ class IdolParams(BaseModel):
         "synthetic",
         title="Type d'image",
         description="Rendu ou image générée d'un objet seul, ou photo réelle (recadrage plus large).",
-        json_schema_extra={"x-ui": {"widget": "radio", "order": 1}},
+        json_schema_extra={"x-ui": {"widget": "radio", "order": 1, "labels": {"synthetic": "Rendu", "real": "Photo"}}},
     )
     num_gaussians: Literal[65536, 131072, 262144, 524288, 1048576] = Field(
         262144,

@@ -20,7 +20,7 @@ FIELD_KEYS = {"type", "title", "description", "default", "enum", "minimum", "max
 NULLABLE_BRANCH_KEYS = {"type", "enum", "minimum", "maximum", "multipleOf"}
 WIDGETS = {"slider", "number", "select", "radio", "toggle"}
 X_UI_REQUIRED = {"widget", "order"}
-X_UI_KEYS = X_UI_REQUIRED | {"group", "advanced", "unit"}
+X_UI_KEYS = X_UI_REQUIRED | {"group", "advanced", "unit", "labels"}
 
 
 def schema_violations(schema: dict[str, Any]) -> list[str]:
@@ -48,6 +48,7 @@ def _field_violations(prop: dict[str, Any]) -> list[str]:
     elif prop.get("type") not in TYPES:
         problems.append(f"type {prop.get('type')!r} hors sous-ensemble")
     problems += _x_ui_violations(prop.get("x-ui"))
+    problems += _label_violations(prop)
     return problems
 
 
@@ -61,6 +62,19 @@ def _nullable_violations(branches: list[dict[str, Any]]) -> list[str]:
     if branch.get("type") not in TYPES:
         problems.append(f"type {branch.get('type')!r} hors sous-ensemble dans anyOf")
     return problems
+
+
+def _label_violations(prop: dict[str, Any]) -> list[str]:
+    """Les libellés traduisent des valeurs d'enum : une clé inconnue n'afficherait jamais rien."""
+    x_ui = prop.get("x-ui")
+    if not isinstance(x_ui, dict) or "labels" not in x_ui:
+        return []
+    labels = x_ui["labels"]
+    if not isinstance(labels, dict) or not all(isinstance(text, str) for text in labels.values()):
+        return ["x-ui : labels doit associer un texte à chaque valeur"]
+    branches = [branch for branch in prop.get("anyOf", [prop]) if branch != {"type": "null"}]
+    known = {str(value) for branch in branches for value in branch.get("enum", [])}
+    return [f"x-ui : labels vise une valeur inconnue : {key}" for key in labels.keys() - known]
 
 
 def _x_ui_violations(x_ui: Any) -> list[str]:

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
@@ -193,3 +195,30 @@ def test_invalid_input_is_params_invalid_and_names_the_field():
         effective_params(IdolAdapter(), "balanced", {"steps": 500})
     assert caught.value.code is ErrorCode.PARAMS_INVALID
     assert "steps" in caught.value.message
+
+
+def labelled(labels: object) -> dict[str, Any]:
+    prop = {"type": "string", "enum": ["a", "b"], "x-ui": {"widget": "radio", "order": 1, "labels": labels}}
+    return {"type": "object", "additionalProperties": False, "properties": {"choice": prop}}
+
+
+def test_enum_labels_are_part_of_the_subset() -> None:
+    assert schema_violations(labelled({"a": "Premier", "b": "Second"})) == []
+
+
+@pytest.mark.parametrize("labels", [{"c": "Inconnu"}, {"a": 1}, ["Premier"]])
+def test_enum_labels_must_name_known_values_with_text(labels: object) -> None:
+    assert any("labels" in v for v in schema_violations(labelled(labels)))
+
+
+def test_labels_are_accepted_on_a_nullable_enum() -> None:
+    schema = labelled({"a": "Premier"})
+    prop = schema["properties"]["choice"]
+    prop["anyOf"] = [{"type": "string", "enum": ["a", "b"]}, {"type": "null"}]
+    del prop["type"], prop["enum"]
+    assert schema_violations(schema) == []
+
+
+def test_idol_image_type_is_labelled_for_the_form() -> None:
+    ui = IdolAdapter.params_model.model_json_schema()["properties"]["mode"]["x-ui"]
+    assert ui["labels"] == {"synthetic": "Rendu", "real": "Photo"}
