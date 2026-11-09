@@ -22,7 +22,7 @@ const FILTERS: Record<string, { label: string; query: GenerationQuery }> = {
   protected: { label: "Protégées", query: { protected: true } },
 };
 
-type ListProps = { api: LibraryApi; query: GenerationQuery; selectedId: string | null; onSelect: (id: string) => void; hasActive: boolean };
+type ListProps = { api: LibraryApi; query: GenerationQuery; selectedId: string | null; onSelect: (id: string) => void; hasActive: boolean; refreshKey: number };
 
 function metaOf(item: Generation) {
   const parts = item.error
@@ -53,15 +53,21 @@ function Row({ item, selected, onSelect }: { item: Generation; selected: boolean
   );
 }
 
-function LibraryList({ api, query, selectedId, onSelect, hasActive }: ListProps) {
+function LibraryList({ api, query, selectedId, onSelect, hasActive, refreshKey }: ListProps) {
   // Tout ce qui est affiché se relit à chaque cycle, sinon une génération ancienne resterait figée.
   const [limit, setLimit] = useState(PAGE_SIZE);
-  const load = useCallback((signal: AbortSignal) => api.generations({ limit, ...query }, signal), [api, limit, query]);
+  // `refreshKey` force une lecture immédiate après une action.
+  const load = useCallback((signal: AbortSignal) => api.generations({ limit, ...query }, signal), [api, limit, query, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const delayOf = useMemo(() => () => (hasActive ? ACTIVE_POLL_MS : IDLE_POLL_MS), [hasActive]);
   const { data, failed } = usePolling(load, delayOf);
   const [more, setMore] = useState<{ items: Generation[]; cursor: string | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreFailed, setMoreFailed] = useState(false);
+  const [seenRefresh, setSeenRefresh] = useState(refreshKey);
+  if (refreshKey !== seenRefresh) {
+    setSeenRefresh(refreshKey);
+    setMore(null); // ces pages ne se relisent pas et peuvent contenir une ligne supprimée
+  }
 
   const items = [...new Map([...(data?.items ?? []), ...(more?.items ?? [])].map((item) => [item.id, item])).values()];
   const cursor = more ? more.cursor : (data?.next_cursor ?? null);
@@ -114,9 +120,9 @@ function LibraryList({ api, query, selectedId, onSelect, hasActive }: ListProps)
   );
 }
 
-type LibraryProps = { api?: LibraryApi; selectedId: string | null; onSelect: (id: string) => void; hasActive: boolean };
+type LibraryProps = { api?: LibraryApi; selectedId: string | null; onSelect: (id: string) => void; hasActive: boolean; refreshKey?: number };
 
-export function Library({ api = defaultApi, selectedId, onSelect, hasActive }: LibraryProps) {
+export function Library({ api = defaultApi, selectedId, onSelect, hasActive, refreshKey = 0 }: LibraryProps) {
   const [filter, setFilter] = useState("all");
   return (
     <>
@@ -130,7 +136,7 @@ export function Library({ api = defaultApi, selectedId, onSelect, hasActive }: L
           ))}
         </select>
       </label>
-      <LibraryList key={filter} api={api} query={FILTERS[filter].query} selectedId={selectedId} onSelect={onSelect} hasActive={hasActive} />
+      <LibraryList key={filter} api={api} query={FILTERS[filter].query} selectedId={selectedId} onSelect={onSelect} hasActive={hasActive} refreshKey={refreshKey} />
     </>
   );
 }

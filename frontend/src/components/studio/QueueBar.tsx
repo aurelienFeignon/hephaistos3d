@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import type { QueueItem, QueueView } from "@/lib/api/client";
 import { ACTIVE_POLL_MS, formatElapsed, IDLE_POLL_MS, STAGES } from "@/lib/generations/format";
 
@@ -39,7 +42,39 @@ function Waiting({ item }: { item: QueueItem }) {
   return <span className="font-mono text-xs text-ink-muted">{reason}</span>;
 }
 
-export function QueueBar({ items, failed }: { items: QueueItem[] | null; failed: boolean }) {
+function CancelButton({ item, onCancel }: { item: QueueItem; onCancel: (id: string) => Promise<unknown> }) {
+  const [state, setState] = useState<"idle" | "requested" | "failed">("idle");
+  async function cancel() {
+    setState("requested");
+    try {
+      await onCancel(item.id);
+    } catch {
+      setState("failed");
+    }
+  }
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`Annuler ${item.source.filename}`}
+        disabled={state === "requested"}
+        className="min-h-9 shrink-0 rounded-md border border-line-strong px-3 disabled:opacity-50"
+        onClick={cancel}
+      >
+        {state === "requested" ? "Annulation demandée" : "Annuler"}
+      </button>
+      {state === "failed" && (
+        <span role="alert" className="text-danger">
+          Annulation impossible.
+        </span>
+      )}
+    </>
+  );
+}
+
+type QueueBarProps = { items: QueueItem[] | null; failed: boolean; onCancel?: (id: string) => Promise<unknown> };
+
+export function QueueBar({ items, failed, onCancel }: QueueBarProps) {
   return (
     <>
       {items && items.length > 0 && (
@@ -49,6 +84,7 @@ export function QueueBar({ items, failed }: { items: QueueItem[] | null; failed:
               {item.position !== null && <span className="font-mono text-xs text-ink-muted">{`#${item.position}`}</span>}
               <span className="max-w-48 truncate font-medium">{item.source.filename}</span>
               {item.status === "RUNNING" ? <Running item={item} /> : <Waiting item={item} />}
+              {onCancel && <CancelButton item={item} onCancel={onCancel} />}
             </li>
           ))}
         </ul>

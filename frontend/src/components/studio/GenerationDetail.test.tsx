@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Generation } from "@/lib/api/client";
@@ -33,6 +33,8 @@ function apiOf(over: Partial<Record<keyof DetailApi, unknown>> = {}) {
     generation: vi.fn(async () => generation()),
     attempts: vi.fn(async () => ({ items: [attempt(1)], next_after: null })),
     modelSchema: vi.fn(async () => schema),
+    protect: vi.fn(async () => generation({ protected: true })),
+    deleteGeneration: vi.fn(async () => undefined),
     logs: vi.fn(async () => [{ timestamp: "2026-11-09T14:00:05Z", event: "stage_started", stage: "sampling", generation_id: "g1" }]),
     ...over,
   } as unknown as DetailApi & { logs: ReturnType<typeof vi.fn> };
@@ -43,6 +45,7 @@ const show = async (api = apiOf(), onClose = () => {}) => {
   return userEvent.setup();
 };
 const section = (name: string) => screen.getByRole("region", { name });
+const loaded = (name: string) => screen.findByRole("region", { name });
 const pairs = (root: HTMLElement) => [...root.querySelectorAll("dt")].map((dt) => `${dt.textContent}=${dt.nextElementSibling?.textContent}`);
 
 describe("GenerationDetail", () => {
@@ -80,13 +83,13 @@ describe("GenerationDetail", () => {
 
   it("donne les durées par étape de la dernière tentative, dans l'ordre d'exécution", async () => {
     await show(apiOf({ attempts: vi.fn(async () => ({ items: [attempt(1, { stage_durations_ms: { encode: 1 } }), attempt(2)], next_after: null })) }));
-    await within(section("Durées par étape")).findByText("Échantillonnage");
+    await within(await loaded("Durées par étape")).findByText("Échantillonnage");
     expect(pairs(section("Durées par étape"))).toEqual(["Prétraitement=0,2 s", "Échantillonnage=42,4 s"]);
   });
 
   it("liste les tentatives avec leur issue et leur erreur", async () => {
     await show(apiOf({ attempts: vi.fn(async () => ({ items: [attempt(1, { outcome: "FAILED", error_code: "GPU_OOM", error_message: "plus de mémoire" }), attempt(2, { outcome: null })], next_after: null })) }));
-    const region = section("Tentatives");
+    const region = await loaded("Tentatives");
     expect(await within(region).findByText("Tentative 1 : échec")).toBeTruthy();
     expect(within(region).getByText("GPU_OOM : plus de mémoire")).toBeTruthy();
     expect(within(region).getByText("Tentative 2 : en cours")).toBeTruthy();
@@ -94,7 +97,7 @@ describe("GenerationDetail", () => {
 
   it("traduit l'issue réussie publiée par l'API", async () => {
     await show();
-    expect(await within(section("Tentatives")).findByText("Tentative 1 : réussie")).toBeTruthy();
+    expect(await within(await loaded("Tentatives")).findByText("Tentative 1 : réussie")).toBeTruthy();
   });
 
   it("charge le journal d'une tentative à la demande", async () => {
@@ -113,6 +116,25 @@ describe("GenerationDetail", () => {
     expect(await screen.findByText("Ce journal est vide.")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Voir le journal de la tentative 2" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/journal/);
+  });
+
+  it("relit la génération après une action et prévient le Studio", async () => {
+    const api = apiOf();
+    const onChanged = vi.fn();
+    render(<GenerationDetail api={api} id="g1" onClose={() => {}} onChanged={onChanged} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Protéger" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+    await waitFor(() => expect((api.generation as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it("prévient le Studio d'une suppression", async () => {
+    const onDeleted = vi.fn();
+    render(<GenerationDetail api={apiOf()} id="g1" onClose={() => {}} onDeleted={onDeleted} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Supprimer" }));
+    await user.click(screen.getByRole("button", { name: "Confirmer la suppression" }));
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce());
   });
 
   it("permet de revenir au formulaire", async () => {

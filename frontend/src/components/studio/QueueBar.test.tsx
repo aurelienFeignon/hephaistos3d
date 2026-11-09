@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { QueueItem } from "@/lib/api/client";
 import { QueueBar, queuePollDelay } from "./QueueBar";
 
@@ -26,6 +27,40 @@ describe("queuePollDelay", () => {
 });
 
 describe("QueueBar", () => {
+  const cancelButton = () => screen.getByRole("button", { name: "Annuler lampe.png" }) as HTMLButtonElement;
+
+  it("n'affiche pas d'annulation sans action fournie", () => {
+    render(<QueueBar items={[item({})]} failed={false} />);
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("annule une génération depuis la file", async () => {
+    const onCancel = vi.fn(async () => {});
+    const user = userEvent.setup();
+    render(<QueueBar items={[item({})]} failed={false} onCancel={onCancel} />);
+    await user.click(cancelButton());
+    expect(onCancel).toHaveBeenCalledWith("g");
+  });
+
+  it("indique que l'annulation est demandée tant que la génération reste en file", async () => {
+    const user = userEvent.setup();
+    render(<QueueBar items={[running({ stage: "sampling" })]} failed={false} onCancel={async () => {}} />);
+    await user.click(cancelButton());
+    expect(await screen.findByText("Annulation demandée")).toBeTruthy();
+    expect(cancelButton().disabled).toBe(true);
+  });
+
+  it("permet de réessayer après un échec d'annulation", async () => {
+    const onCancel = vi.fn().mockRejectedValueOnce(new Error("réseau")).mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<QueueBar items={[item({})]} failed={false} onCancel={onCancel} />);
+    await user.click(cancelButton());
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Annulation impossible/);
+    await waitFor(() => expect(cancelButton().disabled).toBe(false));
+    await user.click(cancelButton());
+    expect(onCancel).toHaveBeenCalledTimes(2);
+  });
+
   it("annonce le chargement sans prétendre que la file est vide", () => {
     render(<QueueBar items={null} failed={false} />);
     expect(screen.getByText("Chargement de la file…")).toBeTruthy();

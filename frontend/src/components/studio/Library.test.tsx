@@ -149,6 +149,19 @@ describe("Library", () => {
     expect(screen.getByRole("button", { name: /a\.png/ })).toBeTruthy();
   });
 
+  it("relit la liste après une action et oublie les pages ajoutées par curseur", async () => {
+    const generations = vi.fn(async (query: { cursor?: string }) =>
+      query.cursor ? page([generation("z")]) : page([generation("a")], "c1"));
+    const api = { generations } as unknown as LibraryApi;
+    const view = show(api);
+    await clickUntilCursor(generations);
+    await screen.findByRole("button", { name: /z\.png/ });
+    const calls = generations.mock.calls.length;
+    view.rerender(<Library api={api} selectedId={null} onSelect={() => {}} hasActive={false} refreshKey={1} />);
+    await waitFor(() => expect(generations.mock.calls.length).toBeGreaterThan(calls));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /z\.png/ })).toBeNull());
+  });
+
   it("distingue le chargement, le vide et l'échec", async () => {
     let finish: (value: unknown) => void = () => {};
     const view = show(apiOf(() => new Promise((resolve) => { finish = resolve; })));

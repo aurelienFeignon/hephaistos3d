@@ -6,6 +6,7 @@ import { createApiClient, type Generation } from "@/lib/api/client";
 import { usePolling } from "@/lib/api/usePolling";
 import { useResource } from "@/lib/api/useResource";
 import { formatValue, parseSchema, type FormField, type ParamValue } from "@/lib/forms/engine";
+import { GenerationActions, type ActionsApi } from "./GenerationActions";
 import { ACTIVE_POLL_MS, badgeClass, IDLE_POLL_MS, isActive, STAGES, STATUS_LABELS } from "@/lib/generations/format";
 
 const defaultApi = createApiClient();
@@ -13,7 +14,7 @@ const LOG_TAIL = 200;
 const LOG_HEADER_FIELDS = new Set(["timestamp", "event", "generation_id"]);
 const seconds = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
-export type DetailApi = Pick<typeof defaultApi, "generation" | "attempts" | "logs" | "modelSchema">;
+export type DetailApi = Pick<typeof defaultApi, "generation" | "attempts" | "logs" | "modelSchema"> & ActionsApi;
 type Attempt = Awaited<ReturnType<DetailApi["attempts"]>>["items"][number];
 
 const OUTCOMES: Record<string, string> = {
@@ -133,7 +134,7 @@ function AttemptRow({ api, generationId, attempt }: { api: DetailApi; generation
   );
 }
 
-function Details({ api, generation, onClose }: { api: DetailApi; generation: Generation; onClose: () => void }) {
+function Details({ api, generation, onClose, onChanged, onDeleted }: { api: DetailApi; generation: Generation; onClose: () => void; onChanged: () => void; onDeleted: () => void }) {
   const active = isActive(generation.status);
   const { id, source, error } = generation;
   const loadAttempts = useCallback((signal: AbortSignal) => api.attempts(id, undefined, signal), [api, id]);
@@ -169,6 +170,7 @@ function Details({ api, generation, onClose }: { api: DetailApi; generation: Gen
           </ul>
         </Section>
       )}
+      <GenerationActions api={api} generation={generation} onChanged={onChanged} onDeleted={onDeleted} />
       <button type="button" className="min-h-11 rounded-md border border-line-strong px-3" onClick={onClose}>
         Créer une génération
       </button>
@@ -176,11 +178,17 @@ function Details({ api, generation, onClose }: { api: DetailApi; generation: Gen
   );
 }
 
-export function GenerationDetail({ api = defaultApi, id, onClose }: { api?: DetailApi; id: string; onClose: () => void }) {
+type GenerationDetailProps = { api?: DetailApi; id: string; onClose: () => void; onChanged?: () => void; onDeleted?: () => void };
+
+export function GenerationDetail({ api = defaultApi, id, onClose, onChanged, onDeleted = onClose }: GenerationDetailProps) {
   const load = useCallback((signal: AbortSignal) => api.generation(id, signal), [api, id]);
   const delayOf = useCallback((generation: Generation | null) => (generation && isActive(generation.status) ? ACTIVE_POLL_MS : IDLE_POLL_MS), []);
-  const { data, failed } = usePolling(load, delayOf);
-  if (data) return <Details api={api} generation={data} onClose={onClose} />;
+  const { data, failed, refresh } = usePolling(load, delayOf);
+  const changed = () => {
+    refresh();
+    onChanged?.();
+  };
+  if (data) return <Details api={api} generation={data} onClose={onClose} onChanged={changed} onDeleted={onDeleted} />;
   if (!failed) return <p className="text-[13px] text-ink-muted">Chargement du détail…</p>;
   return (
     <div className="flex flex-col items-start gap-2">
