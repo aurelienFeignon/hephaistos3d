@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/client";
 import type { DecodedImage } from "@/lib/image/inspect";
 import { GenerationPanel, type GenerationApi } from "./GenerationPanel";
@@ -52,6 +52,24 @@ async function withImage(api = apiOf()) {
 const sent = (api: { createGeneration: ReturnType<typeof vi.fn> }) => api.createGeneration.mock.calls[0][0] as FormData;
 
 describe("GenerationPanel", () => {
+  beforeEach(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+  });
+
+  it("actualise la disponibilité sans changer de modèle ni perdre la saisie", async () => {
+    const models = vi.fn().mockResolvedValueOnce([model("m1", "Alpha"), model("m2", "Beta")]).mockResolvedValue([model("m1", "Alpha", false), model("m2", "Beta")]);
+    const api = apiOf({ models } as never);
+    const user = userEvent.setup();
+    const view = render(<GenerationPanel api={api} decode={decode} />);
+    const pas = await screen.findByRole("spinbutton", { name: "Pas" });
+    await user.clear(pas);
+    await user.type(pas, "7");
+    view.rerender(<GenerationPanel api={api} decode={decode} refreshKey={1} />);
+    expect(await screen.findByRole("option", { name: "Alpha (indisponible)" })).toBeTruthy();
+    expect((screen.getByRole("combobox", { name: "Modèle" }) as HTMLSelectElement).value).toBe("m1");
+    expect((screen.getByRole("spinbutton", { name: "Pas" }) as HTMLInputElement).value).toBe("7");
+  });
+
   it("sélectionne le premier modèle disponible et son préréglage par défaut", async () => {
     await ready();
     expect((screen.getByRole("combobox", { name: "Modèle" }) as HTMLSelectElement).value).toBe("m1");

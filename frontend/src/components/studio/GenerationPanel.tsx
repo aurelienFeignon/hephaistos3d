@@ -2,13 +2,16 @@
 
 import { useCallback, useId, useState, type FormEvent } from "react";
 import { ApiError, createApiClient, type Model } from "@/lib/api/client";
+import { usePolling } from "@/lib/api/usePolling";
 import { useResource } from "@/lib/api/useResource";
 import { applyPreset, baselineOf, formatValue, initialValues, paramsToSend, parseSchema, parseSeed, validate, type FormField, type FormValues } from "@/lib/forms/engine";
+import { IDLE_POLL_MS } from "@/lib/generations/format";
 import { decodeInBrowser, type ImageDecoder } from "@/lib/image/inspect";
 import { ImagePicker } from "./ImagePicker";
 import { fieldInputClass, fieldLabelClass, ParamsForm } from "./ParamsForm";
 
 const defaultApi = createApiClient();
+const modelsPollDelay = () => IDLE_POLL_MS;
 
 export type GenerationApi = Pick<typeof defaultApi, "models" | "modelSchema" | "presets" | "createGeneration">;
 
@@ -185,17 +188,23 @@ function ModelForm({ api, model, file, onCreated }: { api: GenerationApi; model:
   return <ReadyForm api={api} model={model} definition={state.data} file={file} onCreated={onCreated} />;
 }
 
-export function GenerationPanel({ api = defaultApi, decode = decodeInBrowser, onCreated }: { api?: GenerationApi; decode?: ImageDecoder; onCreated?: () => void }) {
-  const load = useCallback((signal: AbortSignal) => api.models(signal), [api]);
-  const { state, retry } = useResource(load);
+type GenerationPanelProps = { api?: GenerationApi; decode?: ImageDecoder; onCreated?: () => void; refreshKey?: number };
+
+export function GenerationPanel({ api = defaultApi, decode = decodeInBrowser, onCreated, refreshKey = 0 }: GenerationPanelProps) {
+  // La disponibilité suit les workers : elle se relit, et `refreshKey` force une lecture après une action.
+  const load = useCallback((signal: AbortSignal) => api.models(signal), [api, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { data: models, failed, refresh } = usePolling(load, modelsPollDelay);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const selectId = useId();
 
-  if (state.status === "error") return <LoadFailure text="Impossible de charger les modèles. Vérifiez que le service est démarré." onRetry={retry} />;
-  if (state.status === "loading") return <p className="text-[13px] text-ink-muted">Chargement des modèles…</p>;
-  const models = state.data;
-  const model = models.find(({ id }) => id === chosenId) ?? models.find(({ available }) => available) ?? models[0];
+  // Le choix initial se fige : une perte de worker ne doit pas basculer sur un autre modèle.
+  const initial = models?.find(({ available }) => available) ?? models?.[0];
+  if (chosenId === null && initial) setChosenId(initial.id);
+
+  if (!models && failed) return <LoadFailure text="Impossible de charger les modèles. Vérifiez que le service est démarré." onRetry={refresh} />;
+  if (!models) return <p className="text-[13px] text-ink-muted">Chargement des modèles…</p>;
+  const model = models.find(({ id }) => id === chosenId) ?? initial;
   if (!model) return <p className="text-ink-muted">Aucun modèle n&apos;est installé.</p>;
 
   return (

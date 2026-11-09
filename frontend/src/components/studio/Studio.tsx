@@ -8,14 +8,15 @@ import { GenerationPanel } from "./GenerationPanel";
 import { Library } from "./Library";
 import { QueueBar, queuePollDelay } from "./QueueBar";
 import { StudioShell } from "./StudioShell";
+import { SystemBar } from "./SystemBar";
 
 const api = createApiClient();
 
 const loadQueue = (signal: AbortSignal) => api.queue({ limit: 50 }, signal);
 
-type StudioProps = { status: ReactNode; viewer: ReactNode };
+type StudioProps = { viewer: ReactNode };
 
-export function Studio({ status, viewer }: StudioProps) {
+export function Studio({ viewer }: StudioProps) {
   const { data, failed, refresh } = usePolling(loadQueue, queuePollDelay);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -32,7 +33,7 @@ export function Studio({ status, viewer }: StudioProps) {
   );
   return (
     <StudioShell
-      status={status}
+      status={<SystemBar refreshKey={refreshKey} onDispatchChanged={refreshAll} />}
       library={<Library selectedId={selectedId} onSelect={setSelectedId} hasActive={Boolean(data?.items.length)} refreshKey={refreshKey} />}
       viewer={viewer}
       panelTitle={selectedId ? "Détail de la génération" : "Nouvelle génération"}
@@ -42,7 +43,7 @@ export function Studio({ status, viewer }: StudioProps) {
         <>
           {/* Le formulaire reste monté : consulter une génération ne perd ni l'image ni les réglages. */}
           <div className={selectedId ? "hidden" : "flex flex-1 flex-col"}>
-            <GenerationPanel onCreated={refreshAll} />
+            <GenerationPanel onCreated={refreshAll} refreshKey={refreshKey} />
           </div>
           {selectedId && (
             <GenerationDetail
