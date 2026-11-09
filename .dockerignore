@@ -13,5 +13,16 @@
 !backend/tests/**
 !deploy/
 !deploy/backend.Dockerfile
+!deploy/frontend.Dockerfile
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/next.config.ts
+!frontend/tsconfig.json
+!frontend/src/
+!frontend/src/**
+!frontend/public/
+!frontend/public/**
+**/*.test.ts
+**/*.test.tsx
 **/__pycache__
 **/*.pyc

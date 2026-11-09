@@ -4,8 +4,8 @@
 Preuves et périmètre : [CPU](validation/P2.11-cpu.md) et [GPU](validation/P2.11-gpu.md).
 Les gates P0, P1 et P2 sont validés. Les corrections de sécurité préalables à P3 sont décrites
 dans le [compte rendu](security/remediation-P2-2026-11-05.md).
-Le frontend sera ajouté en P3. Aucun port hôte n'est publié à cette étape (ADR-0009) :
-l'API écoute sur 8000 uniquement dans le réseau interne. Le port 3030 reste réservé au frontend.
+Le service `frontend` est le seul à publier un port (ADR-0009), sur `127.0.0.1:3030` par défaut :
+l'API écoute sur 8000 uniquement dans le réseau interne. Voir les [preuves P3.9](validation/P3.9-frontend-compose.md).
 
 ## Préparer les répertoires
 
@@ -162,9 +162,9 @@ sans ajouter curl ni des outils GPU.
 
 ## Développement frontend — premier lot P3
 
-Le client typé et le proxy Next sont implémentés ; le service Compose frontend est encore prévu
-pour la suite de P3.9. `npm run dev` depuis `frontend` charge le `.env` racine et écoute seulement
-sur 127.0.0.1:3030. L'API doit être démarrée séparément, avec le même jeton ; Compose ne publie
-pas son port actuellement. Ne pas publier ce port pour contourner cette organisation.
+`npm run dev` depuis `frontend` charge le `.env` racine et écoute seulement sur 127.0.0.1:3030. L'API
+doit être démarrée séparément, avec le même jeton ; ne pas publier son port pour contourner cette
+organisation. En Compose, le service `frontend` utilise `http://api:8000`. Avec un autre
+`HEPHAISTOS_PORT` ou une autre adresse, adapter `FRONTEND_ALLOWED_ORIGINS` et `API_ALLOWED_ORIGINS`.
 Les tests HTTP de ce lot ont démarré une API locale isolée sur base temporaire, jamais la base réelle.
 Voir [configuration et preuves P3.1](validation/P3.1-client-proxy.md).

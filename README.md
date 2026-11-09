@@ -41,7 +41,7 @@ The FLUX.2-dev VAE license forbids any commercial use of the generations that de
 Offline weight installation: [`docs/install-models.md`](docs/install-models.md).
 
 Backend Compose preparation and validation: [`docs/deployment.md`](docs/deployment.md) (French).
-No host port is published until the frontend is added in P3; the GPU worker requires an explicit profile.
+Only the frontend publishes a port, on `127.0.0.1:3030` by default; the GPU worker requires an explicit profile.
 
 ## Development
 

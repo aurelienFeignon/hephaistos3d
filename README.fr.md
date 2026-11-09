@@ -42,7 +42,7 @@ La licence du VAE FLUX.2-dev interdit tout usage commercial des générations qu
 Installation hors ligne des poids : [`docs/install-models.md`](docs/install-models.md).
 
 Préparation et validation du backend Compose : [`docs/deployment.md`](docs/deployment.md).
-Aucun port hôte avant le frontend P3 ; le worker GPU exige un profil explicite.
+Seul le frontend publie un port, sur `127.0.0.1:3030` par défaut ; le worker GPU exige un profil explicite.
 
 ## Développement
 
