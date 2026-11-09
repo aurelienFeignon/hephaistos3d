@@ -3,6 +3,8 @@ import type { components, paths } from "./schema";
 type Schemas = components["schemas"];
 export type Generation = Schemas["GenerationView"];
 export type Model = Schemas["ModelView"];
+export type QueueView = Schemas["QueueView"];
+export type QueueItem = Schemas["QueueItem"];
 export type Problem = paths["/api/v1/models"]["get"]["responses"][400]["content"]["application/problem+json"];
 export type GenerationQuery = NonNullable<paths["/api/v1/generations"]["get"]["parameters"]["query"]>;
 type DispatchUpdate = Schemas["DispatchUpdate"];

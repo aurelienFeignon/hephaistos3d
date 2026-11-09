@@ -66,7 +66,7 @@ function LoadFailure({ text, onRetry }: { text: string; onRetry: () => void }) {
   );
 }
 
-function ReadyForm({ api, model, definition, file }: { api: GenerationApi; model: Model; definition: Definition; file: File | null }) {
+function ReadyForm({ api, model, definition, file, onCreated }: { api: GenerationApi; model: Model; definition: Definition; file: File | null; onCreated?: () => void }) {
   const { fields, presets } = definition;
   const presetKeys = Object.keys(presets);
   const [preset, setPreset] = useState<string | null>(model.default_preset && presets[model.default_preset] ? model.default_preset : (presetKeys[0] ?? null));
@@ -98,11 +98,12 @@ function ReadyForm({ api, model, definition, file }: { api: GenerationApi; model
     setSubmitting(true);
     try {
       const created = await api.createGeneration(body);
-      setFeedback(
-        created.status === "FAILED"
-          ? { kind: "error", text: "L'image n'a pas pu être enregistrée. Importez-la de nouveau." }
-          : { kind: "success", text: "Génération ajoutée à la file." },
-      );
+      if (created.status === "FAILED") {
+        setFeedback({ kind: "error", text: "L'image n'a pas pu être enregistrée. Importez-la de nouveau." });
+      } else {
+        setFeedback({ kind: "success", text: "Génération ajoutée à la file." });
+        onCreated?.();
+      }
     } catch (error) {
       setFeedback({ kind: "error", text: messageFor(error) });
     } finally {
@@ -191,7 +192,7 @@ function ReadyForm({ api, model, definition, file }: { api: GenerationApi; model
   );
 }
 
-function ModelForm({ api, model, file }: { api: GenerationApi; model: Model; file: File | null }) {
+function ModelForm({ api, model, file, onCreated }: { api: GenerationApi; model: Model; file: File | null; onCreated?: () => void }) {
   const load = useCallback(
     async (signal: AbortSignal): Promise<Definition> => {
       const [schema, presets] = await Promise.all([api.modelSchema(model.id, signal), api.presets(model.id, signal)]);
@@ -202,10 +203,10 @@ function ModelForm({ api, model, file }: { api: GenerationApi; model: Model; fil
   const { state, retry } = useResource(load);
   if (state.status === "error") return <LoadFailure text="Impossible d'afficher les réglages de ce modèle." onRetry={retry} />;
   if (state.status === "loading") return <p className="text-[13px] text-ink-muted">Chargement des réglages…</p>;
-  return <ReadyForm api={api} model={model} definition={state.data} file={file} />;
+  return <ReadyForm api={api} model={model} definition={state.data} file={file} onCreated={onCreated} />;
 }
 
-export function GenerationPanel({ api = defaultApi, decode = decodeInBrowser }: { api?: GenerationApi; decode?: ImageDecoder }) {
+export function GenerationPanel({ api = defaultApi, decode = decodeInBrowser, onCreated }: { api?: GenerationApi; decode?: ImageDecoder; onCreated?: () => void }) {
   const load = useCallback((signal: AbortSignal) => api.models(signal), [api]);
   const { state, retry } = useResource(load);
   const [chosenId, setChosenId] = useState<string | null>(null);
@@ -232,7 +233,7 @@ export function GenerationPanel({ api = defaultApi, decode = decodeInBrowser }: 
         {!model.available && <p className="text-xs">{`${model.unavailable_reason ?? "Modèle indisponible"}. Votre génération attendra dans la file.`}</p>}
       </div>
       <ImagePicker decode={decode} onChange={setFile} />
-      <ModelForm key={model.id} api={api} model={model} file={file} />
+      <ModelForm key={model.id} api={api} model={model} file={file} onCreated={onCreated} />
     </div>
   );
 }

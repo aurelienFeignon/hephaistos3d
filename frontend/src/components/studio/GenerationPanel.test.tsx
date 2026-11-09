@@ -92,6 +92,22 @@ describe("GenerationPanel", () => {
     expect(body.get("seed")).toBe("random");
   });
 
+  it("prévient la file dès qu'une génération est créée, pas après un refus", async () => {
+    const onCreated = vi.fn();
+    const user = userEvent.setup({ applyAccept: false });
+    const create = vi.fn().mockResolvedValueOnce({ id: "g", status: "QUEUED" }).mockRejectedValueOnce(new ApiError(500, "X"));
+    render(<GenerationPanel api={apiOf({ createGeneration: create } as never)} decode={decode} onCreated={onCreated} />);
+    await screen.findByRole("radio", { name: "Moyen" });
+    await user.upload(screen.getByLabelText(/Importer une image/), png());
+    await screen.findByRole("img", { name: "Aperçu de objet.png" });
+    await user.click(await submit());
+    await screen.findByText("Génération ajoutée à la file.");
+    expect(onCreated).toHaveBeenCalledOnce();
+    await user.click(await submit());
+    await screen.findByRole("alert");
+    expect(onCreated).toHaveBeenCalledOnce();
+  });
+
   it("transmet une graine choisie", async () => {
     const { user, api } = await withImage();
     await user.type(screen.getByRole("textbox", { name: "Graine" }), "42");
