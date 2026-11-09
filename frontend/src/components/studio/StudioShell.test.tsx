@@ -24,6 +24,31 @@ const libraryToggle = () => screen.getByRole("button", { name: "Bibliothèque" }
 const panelToggle = () => screen.getByRole("button", { name: "Nouvelle génération" });
 
 describe("StudioShell", () => {
+  const slots = { status: "s", library: "l", viewer: "v", panel: "p", queue: "q" };
+
+  it("nomme le panneau selon son contenu", () => {
+    render(<StudioShell {...slots} panelTitle="Détail de la génération" />);
+    expect(screen.getByRole("complementary", { name: "Détail de la génération" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Détail de la génération" })).toBeTruthy();
+  });
+
+  it("ouvre le panneau quand une génération est révélée, et le referme sans", () => {
+    const view = render(<StudioShell {...slots} revealPanelFor={null} />);
+    expect(panel().dataset.open).toBe("false");
+    view.rerender(<StudioShell {...slots} revealPanelFor="g1" />);
+    expect(panel().dataset.open).toBe("true");
+    view.rerender(<StudioShell {...slots} revealPanelFor={null} />);
+    expect(panel().dataset.open).toBe("false");
+  });
+
+  it("referme la bibliothèque quand une génération est révélée", async () => {
+    const user = userEvent.setup();
+    const view = render(<StudioShell {...slots} revealPanelFor={null} />);
+    await user.click(libraryToggle());
+    view.rerender(<StudioShell {...slots} revealPanelFor="g1" />);
+    expect(library().dataset.open).toBe("false");
+  });
+
   it("place chaque contenu dans sa zone de la mise en page", () => {
     renderShell();
     expect(within(screen.getByRole("banner")).getByText("statut-factice")).toBeTruthy();

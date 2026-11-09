@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import { useCallback, useId, useState, type FormEvent } from "react";
 import { ApiError, createApiClient, type Model } from "@/lib/api/client";
+import { useResource } from "@/lib/api/useResource";
 import { applyPreset, baselineOf, formatValue, initialValues, paramsToSend, parseSchema, parseSeed, validate, type FormField, type FormValues } from "@/lib/forms/engine";
 import { decodeInBrowser, type ImageDecoder } from "@/lib/image/inspect";
 import { ImagePicker } from "./ImagePicker";
@@ -14,7 +15,6 @@ export type GenerationApi = Pick<typeof defaultApi, "models" | "modelSchema" | "
 type Presets = Awaited<ReturnType<GenerationApi["presets"]>>;
 type Definition = { fields: FormField[]; presets: Presets };
 type Feedback = { kind: "success" | "error"; text: string };
-type Resource<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error" };
 
 const API_MESSAGES: Record<string, string> = {
   UPLOAD_TOO_LARGE: "Cette image dépasse la limite du serveur.",
@@ -30,27 +30,6 @@ const API_MESSAGES: Record<string, string> = {
 
 function messageFor(error: unknown) {
   return (error instanceof ApiError && API_MESSAGES[error.code]) || "La génération n'a pas pu être créée. Réessayez.";
-}
-
-function useResource<T>(load: (signal: AbortSignal) => Promise<T>) {
-  const [state, setState] = useState<Resource<T>>({ status: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    const settle = (next: Resource<T>) => {
-      if (!controller.signal.aborted) setState(next);
-    };
-    load(controller.signal).then(
-      (data) => settle({ status: "ready", data }),
-      () => settle({ status: "error" }),
-    );
-    return () => controller.abort();
-  }, [load, attempt]);
-  const retry = () => {
-    setState({ status: "loading" });
-    setAttempt((value) => value + 1);
-  };
-  return { state, retry };
 }
 
 function LoadFailure({ text, onRetry }: { text: string; onRetry: () => void }) {

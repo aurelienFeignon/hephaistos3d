@@ -11,6 +11,9 @@ type StudioShellProps = {
   viewer: ReactNode;
   panel: ReactNode;
   queue: ReactNode;
+  panelTitle?: string;
+  panelOnMobile?: boolean;
+  revealPanelFor?: string | null;
 };
 
 const toggleClass =
@@ -22,8 +25,22 @@ const sideClass =
 
 const headingClass = "text-[13px] font-semibold tracking-[0.06em] text-ink-muted uppercase";
 
-export function StudioShell({ status, library, viewer, panel, queue }: StudioShellProps) {
+export function StudioShell({
+  status,
+  library,
+  viewer,
+  panel,
+  queue,
+  panelTitle = "Nouvelle génération",
+  panelOnMobile = false,
+  revealPanelFor = null,
+}: StudioShellProps) {
   const [open, setOpen] = useState<SidePanel | null>(null);
+  const [revealed, setRevealed] = useState(revealPanelFor);
+  if (revealPanelFor !== revealed) {
+    setRevealed(revealPanelFor);
+    setOpen(revealPanelFor ? "panel" : null);
+  }
   const id = useId();
   const libraryId = `${id}-library`;
   const panelId = `${id}-panel`;
@@ -74,12 +91,12 @@ export function StudioShell({ status, library, viewer, panel, queue }: StudioShe
         </button>
         <button
           type="button"
-          className={`${toggleClass} max-sm:hidden`}
+          className={`${toggleClass} ${panelOnMobile ? "" : "max-sm:hidden"}`}
           aria-expanded={open === "panel"}
           aria-controls={panelId}
           onClick={() => toggle("panel")}
         >
-          Nouvelle génération
+          {panelTitle}
         </button>
       </div>
 
@@ -107,10 +124,10 @@ export function StudioShell({ status, library, viewer, panel, queue }: StudioShe
           id={panelId}
           aria-labelledby={`${panelId}-title`}
           data-open={open === "panel"}
-          className={`${sideClass} right-0 border-l border-line max-sm:data-[open=true]:hidden lg:w-[340px]`}
+          className={`${sideClass} right-0 border-l border-line lg:w-[340px] ${panelOnMobile ? "" : "max-sm:data-[open=true]:hidden"}`}
         >
           <h2 id={`${panelId}-title`} className={headingClass}>
-            Nouvelle génération
+            {panelTitle}
           </h2>
           {panel}
         </aside>

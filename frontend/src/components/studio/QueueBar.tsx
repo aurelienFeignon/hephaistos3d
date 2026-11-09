@@ -1,17 +1,7 @@
 import type { QueueItem, QueueView } from "@/lib/api/client";
-
-const ACTIVE_POLL_MS = 2_000;
-const IDLE_POLL_MS = 15_000;
+import { ACTIVE_POLL_MS, formatElapsed, IDLE_POLL_MS, STAGES } from "@/lib/generations/format";
 
 export const queuePollDelay = (queue: QueueView | null) => (queue?.items.length ? ACTIVE_POLL_MS : IDLE_POLL_MS);
-
-const STAGES: Record<string, string> = {
-  preprocess: "Prétraitement",
-  encode: "Encodage",
-  sampling: "Échantillonnage",
-  decode: "Décodage",
-  export: "Export",
-};
 
 const WAITING_REASONS: Record<string, string> = {
   VRAM_INSUFFICIENT: "attend de la mémoire graphique",
@@ -19,14 +9,6 @@ const WAITING_REASONS: Record<string, string> = {
   NO_WORKER: "aucun worker actif",
   RETRY_BACKOFF: "relance programmée",
 };
-
-function formatElapsed(milliseconds: number) {
-  const total = Math.floor(milliseconds / 1000);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = String(total % 60).padStart(2, "0");
-  return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
-}
 
 function Running({ item }: { item: QueueItem }) {
   const { stage, current, total } = item.progress;

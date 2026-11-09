@@ -11,6 +11,12 @@
   --color-line-strong: #d3cec5;
   --color-accent: #b8430f;
   --color-danger: #b42318;
+  --color-success: #175e36;
+  --color-success-soft: #e3f1e8;
+  --color-progress: #8a3209;
+  --color-progress-soft: #fbe9dd;
+  --color-failure: #a11e14;
+  --color-failure-soft: #fbe4e2;
   --color-stage: #15171a;
   --color-stage-ink: #c9c6bf;
   --font-sans: var(--font-plex-sans);
