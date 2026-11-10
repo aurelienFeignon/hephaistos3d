@@ -265,6 +265,9 @@ exports.
 
 **Prérequis** : P3 validé.
 
+**Avancement au 2026-11-10** : P4.1 et P4.2 implémentés et vérifiés sans GPU, A4.2 et A4.3 démontrés en
+parcours automatisés ([preuves](validation/P4.1-viewer.md)). A4.1 reste à vérifier sur le poste cible.
+
 | Tâche | Contenu |
 |---|---|
 | P4.1 | Composant visualiseur Spark (chargement client uniquement), `OrbitControls`, réinitialisation |

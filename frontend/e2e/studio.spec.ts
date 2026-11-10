@@ -174,3 +174,66 @@ test("P3.2 thème appliqué et mise en page sans défilement horizontal", async 
   await expect(queue(page)).toBeHidden();
   await expect(page.getByRole("button", { name: "Bibliothèque" })).toBeVisible();
 });
+
+const stage = (page: Page) => page.getByRole("region", { name: "Visualiseur 3D" });
+
+async function completedGeneration(page: Page, info: TestInfo) {
+  const name = uniqueName(info);
+  await page.getByRole("radio", { name: "Rapide" }).check();
+  // Peu de gaussiennes : le rendu logiciel du navigateur sans GPU reste fluide. Les gros fichiers
+  // relèvent d'A4.1, vérifié sur le poste cible.
+  await page.getByRole("spinbutton", { name: "Gaussiennes" }).fill("4096");
+  await setStepDelay(page, "0.01");
+  await importImage(page, name);
+  await generate(page).click();
+  await expect(row(page, name).getByText("Terminé")).toBeVisible({ timeout: 30_000 });
+  return name;
+}
+
+test("P4.1 le résultat s'affiche en 3D ; A4.2 la vue tourne puis revient à l'état initial", async ({ page }, info) => {
+  await expect(stage(page).getByText(/Sélectionnez une génération terminée/)).toBeVisible();
+  const name = await completedGeneration(page, info);
+  await row(page, name).click();
+
+  const viewer = page.getByTestId("splat-viewer");
+  await expect(viewer).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
+  await expect(viewer.getByText(/4\s096\s+gaussiennes/)).toBeVisible();
+  const initial = await viewer.getAttribute("data-camera");
+  expect(initial).toMatch(/^-?\d/);
+
+  const box = (await viewer.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2 + 60, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => viewer.getAttribute("data-camera")).not.toBe(initial);
+
+  await viewer.getByRole("button", { name: "Réinitialiser la vue" }).click();
+  await expect.poll(() => viewer.getAttribute("data-camera")).toBe(initial);
+  // L'élan de l'amortissement ne doit pas faire repartir la vue après la réinitialisation.
+  await page.waitForTimeout(500);
+  expect(await viewer.getAttribute("data-camera")).toBe(initial);
+});
+
+test("A4.3 fichier absent ou illisible : message explicite, pas d'écran vide", async ({ page }, info) => {
+  const name = await completedGeneration(page, info);
+  let answer: "missing" | "garbage" = "missing";
+  await page.route(/\/api\/v1\/artifacts\/[0-9A-Z]{26}\/download$/, async (route) => {
+    // Seul le PLY est altéré : la caméra (JSON) passe telle quelle.
+    const response = await route.fetch();
+    if (!(response.headers()["content-type"] ?? "").includes("octet-stream")) return route.fulfill({ response });
+    if (answer === "missing") {
+      return route.fulfill({ status: 404, contentType: "application/problem+json", body: JSON.stringify({ type: "about:blank", title: "Not Found", status: 404, detail: "Artifact file not found", code: "ARTIFACT_NOT_FOUND" }) });
+    }
+    // Même taille que le vrai fichier : seul le contenu est corrompu, la taille reste cohérente.
+    const body = Buffer.alloc((await response.body()).length, 0x20);
+    body.write("<!DOCTYPE html><p>pas un PLY</p>");
+    return route.fulfill({ status: 200, contentType: "application/octet-stream", body });
+  });
+
+  await row(page, name).click();
+  await expect(stage(page).getByRole("alert")).toContainText("introuvable sur le serveur");
+  answer = "garbage";
+  await stage(page).getByRole("button", { name: "Réessayer" }).click();
+  await expect(stage(page).getByRole("alert")).toContainText("pas un PLY valide");
+});

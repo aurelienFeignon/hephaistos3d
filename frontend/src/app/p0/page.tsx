@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { SplatViewer } from "@/components/SplatViewer";
+import { ProbeViewer } from "./ProbeViewer";
 import { PROBE_RUN } from "./probeFile";
 
 export const metadata: Metadata = { title: "Gate P0 — visualisation" };
@@ -25,13 +25,9 @@ export default function P0Page() {
         Gate P0 — visualisation Spark
       </h1>
       <div
-        style={{ flex: "1 1 auto", display: "flex", flexDirection: "column" }}
+        style={{ position: "relative", flex: "1 1 auto", minHeight: 520, borderRadius: 10, overflow: "hidden" }}
       >
-        <SplatViewer
-          splatUrl="/p0/splat.ply"
-          cameraUrl="/p0/camera.json"
-          label={`${PROBE_RUN} · splat.ply`}
-        />
+        <ProbeViewer label={`${PROBE_RUN} · splat.ply`} />
       </div>
     </main>
   );

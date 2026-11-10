@@ -1,6 +1,6 @@
 "use client";
 
-import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatFileType, SplatMesh } from "@sparkjsdev/spark";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -35,10 +35,27 @@ function idolCameraPosition({ yaw, pitch, radius }: IdolCamera): THREE.Vector3 {
   return new THREE.Vector3(dx, dz, -dy).multiplyScalar(radius);
 }
 
-type Props = { splatUrl: string; cameraUrl: string; label: string };
+/** Échec propre à la scène : pas de contexte WebGL, ou Spark ne sait pas décoder le fichier. */
+export type SceneError = "WEBGL" | "DECODE";
 
-export function SplatViewer({ splatUrl, cameraUrl, label }: Props) {
-  const containerRef = useRef<HTMLElement>(null);
+type Props = {
+  /** PLY déjà téléchargé : la progression et les erreurs de transfert sont gérées en amont (P4.2). */
+  bytes: Uint8Array;
+  camera: IdolCamera | null;
+  label: string;
+  onError: (kind: SceneError) => void;
+};
+
+// Position de la caméra arrondie, exposée en attribut pour vérifier rotation et réinitialisation (A4.2).
+const cameraState = (camera: THREE.PerspectiveCamera) =>
+  [...camera.position.toArray(), camera.fov].map((value) => value.toFixed(3)).join(",");
+
+export function SplatViewer({ bytes, camera: idolCamera, label, onError }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
   const resetRef = useRef<() => void>(() => {});
   const controlsRef = useRef<OrbitControls | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -53,10 +70,16 @@ export function SplatViewer({ splatUrl, cameraUrl, label }: Props) {
     if (!container) return;
     let disposed = false;
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: false,
-      preserveDrawingBuffer: true,
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: false,
+        preserveDrawingBuffer: true,
+      });
+    } catch {
+      onErrorRef.current("WEBGL");
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.prepend(renderer.domElement);
     renderer.domElement.className =
@@ -71,6 +94,10 @@ export function SplatViewer({ splatUrl, cameraUrl, label }: Props) {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controlsRef.current = controls;
+    const publishCamera = () => {
+      container.dataset.camera = cameraState(camera);
+    };
+    controls.addEventListener("change", publishCamera);
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = container;
@@ -82,36 +109,39 @@ export function SplatViewer({ splatUrl, cameraUrl, label }: Props) {
     observer.observe(container);
     resize();
 
-    const mesh = new SplatMesh({ url: splatUrl });
+    // Copie : Spark peut céder le tampon à son worker, et l'effet peut être rejoué avec les mêmes octets.
+    const mesh = new SplatMesh({ fileBytes: bytes.slice(), fileType: SplatFileType.PLY });
     mesh.rotation.x = Math.PI; // splats en y vers le bas (pieds du fauteuil en +y) ; Three.js : y vers le haut
     scene.add(mesh);
 
-    let home = { position: new THREE.Vector3(0, 0, 3), fov: 50 };
+    const home = idolCamera
+      ? { position: idolCameraPosition(idolCamera), fov: idolCamera.fov }
+      : { position: new THREE.Vector3(0, 0, 3), fov: 50 };
     resetRef.current = () => {
+      // `controls.reset()` garde l'élan de l'amortissement : la vue repartirait après coup.
+      // Une mise à jour sans amortissement consomme cet élan avant de replacer la caméra.
+      controls.enableDamping = false;
+      controls.update();
       camera.position.copy(home.position);
       camera.fov = home.fov;
       camera.updateProjectionMatrix();
       controls.target.set(0, 0, 0);
       controls.update();
+      controls.enableDamping = true;
+      publishCamera();
     };
-
-    fetch(cameraUrl)
-      .then((r) => (r.ok ? (r.json() as Promise<IdolCamera>) : null))
-      .then((idol) => {
-        if (idol) home = { position: idolCameraPosition(idol), fov: idol.fov };
-        if (!disposed) resetRef.current();
-      })
-      .catch(() => resetRef.current());
+    resetRef.current();
 
     mesh.initialized
       .then(() => {
         if (disposed) return;
         setSplats(mesh.packedSplats?.numSplats ?? null);
         setStatus("");
+        container.dataset.ready = "true";
       })
-      .catch((error: unknown) =>
-        setStatus(`Échec du chargement : ${String(error)}`),
-      );
+      .catch(() => {
+        if (!disposed) onErrorRef.current("DECODE");
+      });
 
     let frames = 0;
     let since = performance.now();
@@ -131,13 +161,14 @@ export function SplatViewer({ splatUrl, cameraUrl, label }: Props) {
       disposed = true;
       renderer.setAnimationLoop(null);
       observer.disconnect();
+      controls.removeEventListener("change", publishCamera);
       controls.dispose();
       mesh.dispose();
       spark.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [splatUrl, cameraUrl]);
+  }, [bytes, idolCamera]);
 
   useEffect(() => {
     if (controlsRef.current) controlsRef.current.autoRotate = autoRotate;
@@ -151,10 +182,10 @@ export function SplatViewer({ splatUrl, cameraUrl, label }: Props) {
   }, [dark]);
 
   return (
-    <section
+    <div
       ref={containerRef}
-      aria-label={`Visualiseur 3D : ${label}`}
-      className={`relative min-h-[520px] flex-1 overflow-hidden rounded-[10px] ${dark ? "bg-[#15171a] text-[#c9c6bf]" : "bg-[#e9e6e0] text-[#3f4248]"}`}
+      data-testid="splat-viewer"
+      className={`absolute inset-0 overflow-hidden ${dark ? "bg-[#15171a] text-[#c9c6bf]" : "bg-[#e9e6e0] text-[#3f4248]"}`}
     >
       <div className="pointer-events-none absolute top-4 left-4 flex flex-col gap-1 font-mono text-[11px]">
         <span>{label}</span>
@@ -233,6 +264,6 @@ export function SplatViewer({ splatUrl, cameraUrl, label }: Props) {
         <br />
         Clic droit : déplacement
       </p>
-    </section>
+    </div>
   );
 }

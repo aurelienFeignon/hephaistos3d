@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useState } from "react";
 import { createApiClient } from "@/lib/api/client";
 import { usePolling } from "@/lib/api/usePolling";
 import { GenerationDetail } from "./GenerationDetail";
 import { GenerationPanel } from "./GenerationPanel";
 import { Library } from "./Library";
 import { QueueBar, queuePollDelay } from "./QueueBar";
+import { ResultViewer } from "./ResultViewer";
 import { StudioShell } from "./StudioShell";
 import { SystemBar } from "./SystemBar";
 
@@ -14,9 +15,7 @@ const api = createApiClient();
 
 const loadQueue = (signal: AbortSignal) => api.queue({ limit: 50 }, signal);
 
-type StudioProps = { viewer: ReactNode };
-
-export function Studio({ viewer }: StudioProps) {
+export function Studio() {
   const { data, failed, refresh } = usePolling(loadQueue, queuePollDelay);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -35,7 +34,7 @@ export function Studio({ viewer }: StudioProps) {
     <StudioShell
       status={<SystemBar refreshKey={refreshKey} onDispatchChanged={refreshAll} />}
       library={<Library selectedId={selectedId} onSelect={setSelectedId} hasActive={Boolean(data?.items.length)} refreshKey={refreshKey} />}
-      viewer={viewer}
+      viewer={<ResultViewer id={selectedId} />}
       panelTitle={selectedId ? "Détail de la génération" : "Nouvelle génération"}
       panelOnMobile={selectedId !== null}
       revealPanelFor={selectedId}
