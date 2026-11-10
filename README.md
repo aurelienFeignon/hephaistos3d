@@ -5,8 +5,11 @@
 A self-hosted web application that turns **a 2D image into a 3D object** (Gaussian Splatting),
 using Sperid Labs' [Idol](https://github.com/speridlabs/idol-sdk) model on your own NVIDIA GPU.
 
-> **Status: in development.** Gates P0, P1 and P2 are validated; the backend (P2) is implemented
-> and its CPU/GPU Compose integration is validated. The [security findings have been addressed](docs/security/remediation-P2-2026-11-05.md) before P3. P3 has started with a typed client and secure server proxy; the Studio screens are still pending. Plan and acceptance criteria:
+> **Status: in development.** Gates P0 to P3 are validated: the backend, its CPU/GPU Compose
+> integration and the Studio interface (upload, generation form, queue and progress, library) work
+> end to end with Idol on a real GPU. Displaying and downloading the 3D result in the browser comes
+> next, in P4. The frontend listens on `127.0.0.1` only: it has no user access control yet, so do not
+> expose it to a network. Plan and acceptance criteria:
 > [`docs/development-plan.md`](docs/development-plan.md) (in French, like the rest of `docs/`).
 
 ## What it does

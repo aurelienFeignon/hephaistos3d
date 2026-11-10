@@ -81,7 +81,7 @@ qualité voulue.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Hephaistos 3D     Studio · Historique     ● worker prêt · VRAM 4,1/12 Go · 2 en file │
+│ Hephaistos 3D     Studio                  ● worker prêt · VRAM 4,1/12 Go · 2 en file │
 ├────────────────┬───────────────────────────────────────┬─────────────────────┤
 │ Bibliothèque   │                                       │ Modèle  [Idol ▾]    │
 │ [filtres]      │                                       │ Image   [aperçu]    │

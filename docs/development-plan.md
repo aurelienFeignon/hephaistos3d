@@ -220,12 +220,12 @@ jour conditionnelle sur le bail).
 
 **Prérequis** : P2 validé ; D5 tranché.
 
-**Avancement au 2026-11-09** : P3.1 à P3.9 implémentés et vérifiés, en Docker CPU isolé pour P3.9. Preuves [P3.1](validation/P3.1-client-proxy.md) et
+**✅ Gate validé le 2026-11-10.** P3.1 à P3.9 implémentés et vérifiés, en Docker CPU isolé pour P3.9. Preuves [P3.1](validation/P3.1-client-proxy.md) et
 [P3.2](validation/P3.2-studio-layout.md), [P3.3](validation/P3.3-image-upload.md),
 [P3.4](validation/P3.4-generation-form.md), [P3.5](validation/P3.5-queue-progress.md),
 [P3.6](validation/P3.6-library-detail.md), [P3.7](validation/P3.7-generation-actions.md) et
-[P3.8](validation/P3.8-system-status.md), [P3.9](validation/P3.9-frontend-compose.md) et
-[A3.1](validation/A3.1-playwright.md) ; [gate P3 en cours](gates/P3.md). Prochaine tâche : A3.2, avec accord GPU et réseau.
+[P3.8](validation/P3.8-system-status.md), [P3.9](validation/P3.9-frontend-compose.md),
+[A3.1](validation/A3.1-playwright.md) et [A3.2](validation/A3.2-idol-manuel.md) ; [gate P3 validé](gates/P3.md).
 
 | Tâche | Contenu |
 |---|---|
