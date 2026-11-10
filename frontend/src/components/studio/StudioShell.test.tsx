@@ -63,6 +63,8 @@ describe("StudioShell", () => {
     expect(within(screen.getByRole("banner")).getByText("Hephaistos 3D")).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Navigation principale" });
     expect(within(nav).getByRole("link", { name: "Studio" }).getAttribute("aria-current")).toBe("page");
+    // La bibliothèque couvre l'historique (F11) : aucune entrée morte dans la navigation.
+    expect(within(nav).queryByText("Historique")).toBeNull();
   });
 
   it("relie chaque bouton au panneau qu'il commande, replié au départ", () => {

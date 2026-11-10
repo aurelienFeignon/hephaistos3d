@@ -72,9 +72,6 @@ export function StudioShell({
           <Link href="/" aria-current="page" className="flex min-h-11 items-center rounded-md bg-page px-3 font-medium">
             Studio
           </Link>
-          <span aria-disabled="true" className="flex min-h-11 items-center px-3 text-ink-faint">
-            Historique
-          </span>
         </nav>
         <div className="min-w-0 font-mono text-xs text-ink-muted sm:ml-auto">{status}</div>
       </header>

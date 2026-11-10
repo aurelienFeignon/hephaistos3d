@@ -25,7 +25,9 @@ const OUTCOMES: Record<string, string> = {
   ABANDONED: "abandonnée",
 };
 
-const definitionListClass = "grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 text-[13px]";
+// Le libellé garde sa largeur naturelle (au plus la moitié) : une colonne de valeurs en `auto`
+// prenait la largeur de la plus longue valeur et réduisait les libellés à une lettre par ligne.
+const definitionListClass = "grid grid-cols-[fit-content(50%)_minmax(0,1fr)] gap-x-3 gap-y-1 text-[13px]";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -40,7 +42,7 @@ function Pair({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
       <dt className="min-w-0 break-words text-ink-muted">{label}</dt>
-      <dd className="font-mono break-all">{children}</dd>
+      <dd className="min-w-0 text-right font-mono break-words">{children}</dd>
     </>
   );
 }
