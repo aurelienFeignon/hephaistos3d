@@ -6,7 +6,7 @@ import type { IdolCamera, SceneError } from "@/components/SplatViewer";
 import { createApiClient, type Generation } from "@/lib/api/client";
 import { usePolling } from "@/lib/api/usePolling";
 import { ArtifactLoadError, downloadArtifact, isPly } from "@/lib/artifacts/download";
-import { ACTIVE_POLL_MS, IDLE_POLL_MS, isActive } from "@/lib/generations/format";
+import { ACTIVE_POLL_MS, formatMegabytes as mo, IDLE_POLL_MS, isActive } from "@/lib/generations/format";
 
 export type { IdolCamera };
 export type SceneProps = { bytes: Uint8Array; camera: IdolCamera | null; label: string; onError: (kind: SceneError) => void };
@@ -19,8 +19,6 @@ const SplatViewer = dynamic(() => import("@/components/SplatViewer").then((modul
 });
 
 const defaultApi = createApiClient();
-const megabytes = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const mo = (bytes: number) => megabytes.format(bytes / 1_000_000);
 
 const MESSAGES = {
   INVALID: "Le fichier 3D est illisible : ce n'est pas un PLY valide.",

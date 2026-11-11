@@ -41,3 +41,7 @@ export function formatElapsed(milliseconds: number) {
   const seconds = String(total % 60).padStart(2, "0");
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
 }
+
+const megabytes = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+/** Taille en mégaoctets décimaux, sans unité (« 17,0 »). */
+export const formatMegabytes = (bytes: number) => megabytes.format(bytes / 1_000_000);

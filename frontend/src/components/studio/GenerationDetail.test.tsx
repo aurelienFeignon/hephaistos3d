@@ -15,8 +15,13 @@ const generation = (over: Partial<Generation> = {}) => ({
   params: { mode: "real", steps: 50, orphelin: 7 },
   progress: { stage: null, current: null, total: null, updated_at: null },
   source: { filename: "chaise.png", url: "/api/v1/generations/g1/source", width: 768, height: 512, has_alpha: true },
+  artifacts: [],
   ...over,
 }) as Generation;
+const artifact = (id: string, kind: string, size_bytes: number) => ({
+  id, kind, size_bytes, generation_id: "g1", mime: "application/octet-stream", sha256: "0".repeat(64), metadata: {}, created_at: "", download_url: `/api/v1/artifacts/${id}/download`,
+});
+const finished = () => generation({ artifacts: [artifact("c", "CAMERA_JSON", 80), artifact("p", "SPLAT_PLY", 17_043_456), artifact("v", "PREVIEW_PNG", 120_000)] } as Partial<Generation>);
 const schema = {
   type: "object", additionalProperties: false,
   properties: {
@@ -66,6 +71,25 @@ describe("GenerationDetail", () => {
     await show(apiOf({ modelSchema: vi.fn(async () => { throw new Error("réseau"); }) }));
     expect(await within(section("Paramètres effectifs")).findByText("mode")).toBeTruthy();
     expect(pairs(section("Paramètres effectifs"))).toContain("mode=real");
+  });
+
+  it("propose le PLY, l'aperçu et la caméra au nom construit par le serveur (P4.4)", async () => {
+    await show(apiOf({ generation: vi.fn(async () => finished()) }));
+    const links = within(section("Télécharger")).getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("aria-label"))).toEqual(["Télécharger splat.ply (17,0 Mo)", "Télécharger l'aperçu PNG", "Télécharger camera.json"]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/api/v1/artifacts/p/download", "/api/v1/artifacts/v/download", "/api/v1/artifacts/c/download"]);
+    // Sans valeur, l'attribut laisse au navigateur le nom de Content-Disposition.
+    expect(links.map((link) => link.getAttribute("download"))).toEqual(["", "", ""]);
+  });
+
+  it("ne propose que les fichiers présents", async () => {
+    await show(apiOf({ generation: vi.fn(async () => generation({ artifacts: [artifact("p", "SPLAT_PLY", 1_500_000)] } as Partial<Generation>)) }));
+    expect(within(section("Télécharger")).getAllByRole("link").map((link) => link.textContent)).toEqual(["splat.ply1,5 Mo"]);
+  });
+
+  it("n'offre aucun téléchargement tant que la génération n'est pas terminée", async () => {
+    await show(apiOf({ generation: vi.fn(async () => ({ ...finished(), status: "RUNNING" }) as Generation) }));
+    expect(screen.queryByRole("region", { name: "Télécharger" })).toBeNull();
   });
 
   it("n'affiche pas de section Erreur sans erreur", async () => {

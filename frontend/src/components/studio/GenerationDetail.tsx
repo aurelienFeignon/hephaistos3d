@@ -7,7 +7,7 @@ import { usePolling } from "@/lib/api/usePolling";
 import { useResource } from "@/lib/api/useResource";
 import { formatValue, parseSchema, type FormField, type ParamValue } from "@/lib/forms/engine";
 import { GenerationActions, type ActionsApi } from "./GenerationActions";
-import { ACTIVE_POLL_MS, badgeClass, IDLE_POLL_MS, isActive, STAGES, STATUS_LABELS } from "@/lib/generations/format";
+import { ACTIVE_POLL_MS, badgeClass, formatMegabytes, IDLE_POLL_MS, isActive, STAGES, STATUS_LABELS } from "@/lib/generations/format";
 
 const defaultApi = createApiClient();
 const LOG_TAIL = 200;
@@ -44,6 +44,46 @@ function Pair({ label, children }: { label: string; children: ReactNode }) {
       <dt className="min-w-0 break-words text-ink-muted">{label}</dt>
       <dd className="min-w-0 text-right font-mono break-words">{children}</dd>
     </>
+  );
+}
+
+type Artifact = Generation["artifacts"][number];
+const secondaryLink = "flex min-h-11 flex-1 items-center justify-center rounded-md border border-line-strong px-3";
+
+// Le nom du fichier vient de Content-Disposition : `download` reste sans valeur pour ne pas l'écraser.
+function Downloads({ artifacts }: { artifacts: Artifact[] }) {
+  const of = (kind: Artifact["kind"]) => artifacts.find((artifact) => artifact.kind === kind);
+  const ply = of("SPLAT_PLY");
+  const preview = of("PREVIEW_PNG");
+  const camera = of("CAMERA_JSON");
+  if (!ply && !preview && !camera) return null;
+  return (
+    <Section title="Télécharger">
+      {ply && (
+        <a
+          href={ply.download_url}
+          download
+          aria-label={`Télécharger splat.ply (${formatMegabytes(ply.size_bytes)} Mo)`}
+          className="flex min-h-11 items-center justify-between rounded-md bg-accent px-3 font-medium text-white"
+        >
+          splat.ply<span className="font-mono text-xs">{`${formatMegabytes(ply.size_bytes)} Mo`}</span>
+        </a>
+      )}
+      {(preview || camera) && (
+        <div className="flex gap-2">
+          {preview && (
+            <a href={preview.download_url} download aria-label="Télécharger l'aperçu PNG" className={secondaryLink}>
+              Aperçu PNG
+            </a>
+          )}
+          {camera && (
+            <a href={camera.download_url} download aria-label="Télécharger camera.json" className={secondaryLink}>
+              camera.json
+            </a>
+          )}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -154,6 +194,7 @@ function Details({ api, generation, onClose, onChanged, onDeleted }: { api: Deta
         </div>
       </div>
 
+      {generation.status === "COMPLETED" && <Downloads artifacts={generation.artifacts} />}
       {error && (
         <Section title="Erreur">
           <p className="font-mono text-[13px] text-danger">{error.code}</p>

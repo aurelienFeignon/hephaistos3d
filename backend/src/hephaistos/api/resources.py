@@ -541,7 +541,7 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
             return FileResponse(
                 path,
                 media_type=row.mime,
-                filename=f"hephaistos-{row.generation_id}-{row.kind.lower()}{path.suffix}",
+                filename=f"hephaistos-{row.generation_id}-{name}",
                 headers={"ETag": f'"{row.sha256}"'},
             )
 

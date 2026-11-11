@@ -267,6 +267,7 @@ exports.
 
 **Avancement au 2026-11-10** : P4.1 et P4.2 implémentés et vérifiés sans GPU, A4.2 et A4.3 démontrés en
 parcours automatisés ([preuves](validation/P4.1-viewer.md)). A4.1 reste à vérifier sur le poste cible.
+P4.4 implémenté et vérifié sans GPU le 2026-11-11, A4.4 démontré ([preuves](validation/P4.4-downloads.md)).
 
 | Tâche | Contenu |
 |---|---|

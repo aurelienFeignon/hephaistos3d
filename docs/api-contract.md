@@ -247,7 +247,7 @@ qui pourrait diverger d'elle.
 | Méthode | Route | Réponse |
 |---|---|---|
 | GET | `/artifacts/{artifact_id}` | métadonnées |
-| GET | `/artifacts/{artifact_id}/download` | fichier ; `Content-Disposition: attachment; filename="hephaistos-<gen>-<kind>.<ext>"` ; support `Range` ; `ETag` = sha256 |
+| GET | `/artifacts/{artifact_id}/download` | fichier ; `Content-Disposition: attachment; filename="hephaistos-<gen>-<nom>"` (`splat.ply`, `preview.png`, `camera.json`) ; support `Range` ; `ETag` = sha256 |
 | GET | `/generations/{id}/exports` | (P4) formats disponibles et leur statut `experimental` |
 | POST | `/generations/{id}/exports` | (P4) `{"format": "spz"}` → création asynchrone d'un artefact `EXPORT_*` |
 

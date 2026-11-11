@@ -1,4 +1,6 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 const ORIGIN = "http://127.0.0.1:3031";
 // PNG valide de 1 × 1 pixel.
@@ -236,4 +238,26 @@ test("A4.3 fichier absent ou illisible : message explicite, pas d'écran vide", 
   answer = "garbage";
   await stage(page).getByRole("button", { name: "Réessayer" }).click();
   await expect(stage(page).getByRole("alert")).toContainText("pas un PLY valide");
+});
+
+test("A4.4 les fichiers téléchargés sont ceux du serveur, octet pour octet (sha256 = ETag)", async ({ page }, info) => {
+  const name = await completedGeneration(page, info);
+  await row(page, name).click();
+  const generations = (await (await page.request.get("/api/v1/generations")).json()).items as { id: string; source: { filename: string }; artifacts: { kind: string; sha256: string; size_bytes: number; download_url: string }[] }[];
+  const generation = generations.find((item) => item.source.filename === name)!;
+  const downloads = detail(page).getByRole("region", { name: "Télécharger" });
+
+  for (const [label, kind, file] of [[/^Télécharger splat\.ply/, "SPLAT_PLY", "splat.ply"], ["Télécharger l'aperçu PNG", "PREVIEW_PNG", "preview.png"], ["Télécharger camera.json", "CAMERA_JSON", "camera.json"]] as const) {
+    const artifact = generation.artifacts.find((item) => item.kind === kind)!;
+    const [download] = await Promise.all([page.waitForEvent("download"), downloads.getByRole("link", { name: label }).click()]);
+    expect(download.suggestedFilename()).toBe(`hephaistos-${generation.id}-${file}`);
+    const bytes = await readFile((await download.path())!);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    // Le navigateur passe par le proxy Next : il ne doit rien altérer, ni octets ni ETag.
+    expect(bytes.length).toBe(artifact.size_bytes);
+    expect(digest).toBe(artifact.sha256);
+    const direct = await page.request.get(artifact.download_url);
+    expect(direct.headers()["etag"]).toBe(`"${digest}"`);
+    expect(Buffer.compare(await direct.body(), bytes)).toBe(0);
+  }
 });

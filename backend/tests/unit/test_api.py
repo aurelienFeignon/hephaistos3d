@@ -1,3 +1,4 @@
+import hashlib
 from datetime import timedelta
 
 import pytest
@@ -144,6 +145,42 @@ def test_download_range_etag_and_safe_path(client, queue, tmp_path):
     path.unlink()
     path.symlink_to("/etc/passwd")
     assert client.get(route + "/download").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("kind", "name", "mime", "content"),
+    [
+        ("SPLAT_PLY", "splat.ply", "application/octet-stream", b"ply\nformat binary_little_endian 1.0\n\x00\xff"),
+        ("PREVIEW_PNG", "preview.png", "image/png", b"\x89PNG\r\n\x1a\n\x00"),
+        ("CAMERA_JSON", "camera.json", "application/json", b'{"yaw": 0.0}'),
+    ],
+)
+def test_download_is_the_stored_file_named_by_the_server(client, queue, tmp_path, kind, name, mime, content):
+    """A4.4 : octets servis = fichier stocké, ETag = son SHA-256, nom construit par le serveur."""
+    identifier = job(queue, status="COMPLETED")
+    path = tmp_path / "results" / identifier / name
+    path.parent.mkdir(parents=True)
+    path.write_bytes(content)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    with Session(queue.engine) as session, session.begin():
+        artifact = Artifact(
+            generation_id=identifier,
+            kind=kind,
+            relative_path=f"results/{identifier}/{name}",
+            mime=mime,
+            sha256=digest,
+            size_bytes=len(content),
+            created_at=NOW,
+        )
+        session.add(artifact)
+        session.flush()
+        aid = artifact.id
+    response = client.get(f"/api/v1/artifacts/{aid}/download")
+    assert response.status_code == 200
+    assert response.content == path.read_bytes()
+    assert response.headers["etag"] == f'"{hashlib.sha256(response.content).hexdigest()}"'
+    assert response.headers["content-disposition"] == f'attachment; filename="hephaistos-{identifier}-{name}"'
+    assert response.headers["content-type"].startswith(mime)
 
 
 def test_source_and_logs(client, queue, tmp_path):
