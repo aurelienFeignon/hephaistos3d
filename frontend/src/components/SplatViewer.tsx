@@ -4,14 +4,9 @@ import { SparkRenderer, SplatFileType, SplatMesh } from "@sparkjsdev/spark";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { idolCameraPosition, type IdolCamera } from "@/lib/viewer/idolCamera";
 
-/** Caméra prédite par Idol pour l'image d'entrée (`camera.json`). */
-export type IdolCamera = {
-  yaw: number;
-  pitch: number;
-  radius: number;
-  fov: number;
-};
+export type { IdolCamera };
 
 const BACKGROUNDS = { dark: 0x15171a, light: 0xe9e6e0 } as const;
 
@@ -23,17 +18,6 @@ const BUTTON =
   "aria-pressed:bg-[#2e3137] aria-pressed:text-[#f2a56e]";
 const ICON =
   "h-[18px] w-[18px] fill-none stroke-current stroke-2 [stroke-linecap:round] [stroke-linejoin:round]";
-
-// Repères établis le 2026-11-03 (G0.7), par la géométrie puis par comparaison avec l'image d'entrée :
-// les splats ont y vers le BAS, d'où le demi-tour autour de x ; la direction de caméra d'Idol
-// (camera.py : yaw = atan2(dx, dy), pitch = asin(dz)) se lit dans Three.js comme (dx, dz, -dy).
-// Des huit conventions essayées, c'est la seule qui reproduit le point de vue de l'image d'entrée.
-function idolCameraPosition({ yaw, pitch, radius }: IdolCamera): THREE.Vector3 {
-  const dx = Math.cos(pitch) * Math.sin(yaw);
-  const dy = Math.cos(pitch) * Math.cos(yaw);
-  const dz = Math.sin(pitch);
-  return new THREE.Vector3(dx, dz, -dy).multiplyScalar(radius);
-}
 
 /** Échec propre à la scène : pas de contexte WebGL, ou Spark ne sait pas décoder le fichier. */
 export type SceneError = "WEBGL" | "DECODE";
@@ -115,7 +99,7 @@ export function SplatViewer({ bytes, camera: idolCamera, label, onError }: Props
     scene.add(mesh);
 
     const home = idolCamera
-      ? { position: idolCameraPosition(idolCamera), fov: idolCamera.fov }
+      ? { position: new THREE.Vector3(...idolCameraPosition(idolCamera)), fov: idolCamera.fov }
       : { position: new THREE.Vector3(0, 0, 3), fov: 50 };
     resetRef.current = () => {
       // `controls.reset()` garde l'élan de l'amortissement : la vue repartirait après coup.
