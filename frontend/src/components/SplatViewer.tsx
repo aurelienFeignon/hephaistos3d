@@ -4,7 +4,7 @@ import { SparkRenderer, SplatFileType, SplatMesh } from "@sparkjsdev/spark";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { idolCameraPosition, type IdolCamera } from "@/lib/viewer/idolCamera";
+import { initialView, type IdolCamera } from "@/lib/viewer/idolCamera";
 
 export type { IdolCamera };
 
@@ -98,8 +98,9 @@ export function SplatViewer({ bytes, camera: idolCamera, label, onError }: Props
     mesh.rotation.x = Math.PI; // splats en y vers le bas (pieds du fauteuil en +y) ; Three.js : y vers le haut
     scene.add(mesh);
 
-    const home = idolCamera
-      ? { position: new THREE.Vector3(...idolCameraPosition(idolCamera)), fov: idolCamera.fov }
+    const view = idolCamera ? initialView(idolCamera) : null;
+    const home = view
+      ? { position: new THREE.Vector3(...view.position), fov: view.fov }
       : { position: new THREE.Vector3(0, 0, 3), fov: 50 };
     resetRef.current = () => {
       // `controls.reset()` garde l'élan de l'amortissement : la vue repartirait après coup.

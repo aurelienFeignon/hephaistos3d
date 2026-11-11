@@ -19,3 +19,21 @@ export function idolCameraPosition({ yaw, pitch, radius }: IdolCamera): [number,
   const dz = Math.sin(pitch);
   return [dx * radius, dz * radius, -dy * radius];
 }
+
+/** En deçà de ce champ (degrés), la caméra d'Idol est traitée comme une vue quasi orthographique. */
+const MIN_FOV = 10;
+/** Champ de vue employé pour rendre une telle vue. */
+const ORTHOGRAPHIC_FALLBACK_FOV = 30;
+
+/**
+ * Vue initiale du visualiseur. Sur une illustration sans perspective, Idol peut prédire une caméra
+ * très lointaine à champ quasi nul (mesuré : 1000 unités, 0,08°), hors du plan lointain du visualiseur.
+ * On garde alors la direction et le cadrage, avec un champ ordinaire et la distance qui montre la même
+ * largeur à l'origine.
+ */
+export function initialView(camera: IdolCamera): { position: [number, number, number]; fov: number } {
+  if (camera.fov >= MIN_FOV) return { position: idolCameraPosition(camera), fov: camera.fov };
+  const halfWidth = camera.radius * Math.tan((camera.fov * Math.PI) / 360);
+  const radius = halfWidth / Math.tan((ORTHOGRAPHIC_FALLBACK_FOV * Math.PI) / 360);
+  return { position: idolCameraPosition({ ...camera, radius }), fov: ORTHOGRAPHIC_FALLBACK_FOV };
+}
