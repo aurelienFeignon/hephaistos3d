@@ -2,5 +2,15 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "local>aurelienFeignon/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "L'image du job e2e embarque le navigateur de @playwright/test : les deux doivent rester à la même version.",
+      "matchPackageNames": [
+        "@playwright/test",
+        "mcr.microsoft.com/playwright"
+      ],
+      "groupName": "playwright"
+    }
   ]
 }
