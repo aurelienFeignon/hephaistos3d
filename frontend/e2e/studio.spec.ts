@@ -200,6 +200,10 @@ test("P4.1 le résultat s'affiche en 3D ; A4.2 la vue tourne puis revient à l'�
   const viewer = page.getByTestId("splat-viewer");
   await expect(viewer).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
   await expect(viewer.getByText(/4\s096\s+gaussiennes/)).toBeVisible();
+  // P4.3 : le panneau lit le nombre publié par le worker et la caméra prédite (factice : lacet 0, champ 30°).
+  const panel = stage(page).getByRole("group", { name: "Informations" });
+  await expect(panel).toContainText(/Gaussiennes\s*4\s096/);
+  await expect(panel).toContainText(/Champ\s*30,0°/);
   const initial = await viewer.getAttribute("data-camera");
   expect(initial).toMatch(/^-?\d/);
 

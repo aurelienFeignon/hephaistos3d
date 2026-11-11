@@ -42,6 +42,9 @@ export function formatElapsed(milliseconds: number) {
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
 }
 
-const megabytes = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+const oneDecimal = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 /** Taille en mégaoctets décimaux, sans unité (« 17,0 »). */
-export const formatMegabytes = (bytes: number) => megabytes.format(bytes / 1_000_000);
+export const formatMegabytes = (bytes: number) => oneDecimal.format(bytes / 1_000_000);
+/** Durée en secondes à une décimale, sans unité (« 43,2 »). */
+export const formatSeconds = (milliseconds: number) => oneDecimal.format(milliseconds / 1000);

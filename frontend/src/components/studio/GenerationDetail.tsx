@@ -7,12 +7,11 @@ import { usePolling } from "@/lib/api/usePolling";
 import { useResource } from "@/lib/api/useResource";
 import { formatValue, parseSchema, type FormField, type ParamValue } from "@/lib/forms/engine";
 import { GenerationActions, type ActionsApi } from "./GenerationActions";
-import { ACTIVE_POLL_MS, badgeClass, formatMegabytes, IDLE_POLL_MS, isActive, STAGES, STATUS_LABELS } from "@/lib/generations/format";
+import { ACTIVE_POLL_MS, badgeClass, formatMegabytes, formatSeconds, IDLE_POLL_MS, isActive, STAGES, STATUS_LABELS } from "@/lib/generations/format";
 
 const defaultApi = createApiClient();
 const LOG_TAIL = 200;
 const LOG_HEADER_FIELDS = new Set(["timestamp", "event", "generation_id"]);
-const seconds = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 export type DetailApi = Pick<typeof defaultApi, "generation" | "attempts" | "logs" | "modelSchema"> & ActionsApi;
 type Attempt = Awaited<ReturnType<DetailApi["attempts"]>>["items"][number];
@@ -122,7 +121,7 @@ function StageDurations({ attempt }: { attempt: Attempt }) {
     <Section title="Durées par étape">
       <dl className={definitionListClass}>
         {stages.map((stage) => (
-          <Pair key={stage} label={STAGES[stage]}>{`${seconds.format((durations[stage] as number) / 1000)} s`}</Pair>
+          <Pair key={stage} label={STAGES[stage]}>{`${formatSeconds(durations[stage] as number)} s`}</Pair>
         ))}
       </dl>
     </Section>

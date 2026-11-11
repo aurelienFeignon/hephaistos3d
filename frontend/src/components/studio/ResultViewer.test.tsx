@@ -53,6 +53,31 @@ describe("ResultViewer", () => {
     expect(download).toHaveBeenCalledWith("/dl/ply1", expect.objectContaining({ expectedBytes: PLY.length }));
   });
 
+  it("résume le fichier, les paramètres clés et la caméra prédite (P4.3)", async () => {
+    const download = vi.fn(async (url: string) => (url === "/dl/ply1" ? PLY : json(CAMERA)));
+    const done = generation({
+      preset: "balanced", seed: 42, elapsed_ms: 43_210,
+      artifacts: [{ ...artifact("SPLAT_PLY", "ply1", 17_043_456), metadata: { gaussians: 262_144 } }, artifact("CAMERA_JSON", "cam1")],
+    } as Partial<Generation>);
+    render(<ResultViewer id="g1" api={api(done)} download={download} Scene={Scene} />);
+    await screen.findByTestId("scene");
+    const info = screen.getByRole("group", { name: "Informations" });
+    const pairs = [...info.querySelectorAll("dt")].map((dt) => `${dt.textContent}=${dt.nextElementSibling?.textContent}`.replace(/\s/g, " "));
+    expect(pairs).toEqual([
+      "Gaussiennes=262 144", "Taille=17,0 Mo", "Préréglage=balanced", "Graine=42", "Durée=43,2 s",
+      "Lacet=28,6°", "Tangage=5,7°", "Distance=2,50", "Champ=40,0°",
+    ]);
+  });
+
+  it("dit quand la caméra n'est pas fournie et omet ce qui manque", async () => {
+    const download = vi.fn(async (url: string) => (url === "/dl/ply1" ? PLY : new TextEncoder().encode("pas du json")));
+    render(<ResultViewer id="g1" api={api(generation({ preset: null, seed: 7, elapsed_ms: null } as Partial<Generation>))} download={download} Scene={Scene} />);
+    await screen.findByTestId("scene");
+    const info = screen.getByRole("group", { name: "Informations" });
+    expect([...info.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual(["Taille", "Graine", "Caméra prédite"]);
+    expect(info.textContent).toContain("non fournie, vue par défaut");
+  });
+
   it("affiche la progression réelle du téléchargement", async () => {
     let report: (loaded: number, total: number | null) => void = () => {};
     let finish: (bytes: Uint8Array) => void = () => {};

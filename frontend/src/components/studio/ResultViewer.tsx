@@ -6,7 +6,7 @@ import type { IdolCamera, SceneError } from "@/components/SplatViewer";
 import { createApiClient, type Generation } from "@/lib/api/client";
 import { usePolling } from "@/lib/api/usePolling";
 import { ArtifactLoadError, downloadArtifact, isPly } from "@/lib/artifacts/download";
-import { ACTIVE_POLL_MS, formatMegabytes as mo, IDLE_POLL_MS, isActive } from "@/lib/generations/format";
+import { ACTIVE_POLL_MS, formatMegabytes as mo, formatSeconds, IDLE_POLL_MS, isActive } from "@/lib/generations/format";
 
 export type { IdolCamera };
 export type SceneProps = { bytes: Uint8Array; camera: IdolCamera | null; label: string; onError: (kind: SceneError) => void };
@@ -48,6 +48,40 @@ function parseCamera(bytes: Uint8Array): IdolCamera | null {
   } catch {
     return null;
   }
+}
+
+type Artifact = Generation["artifacts"][number];
+const degrees = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const twoDecimals = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const deg = (radians: number) => `${degrees.format((radians * 180) / Math.PI)}°`;
+
+// P4.3 : ce qui décrit le résultat affiché. Les paramètres complets restent dans le détail.
+function Information({ generation, ply, camera }: { generation: Generation; ply: Artifact; camera: IdolCamera | null }) {
+  const gaussians = ply.metadata.gaussians;
+  const rows: [string, string][] = [
+    ...(typeof gaussians === "number" ? [["Gaussiennes", gaussians.toLocaleString("fr-FR")] as [string, string]] : []),
+    ["Taille", `${mo(ply.size_bytes)} Mo`],
+    ...(generation.preset ? [["Préréglage", generation.preset] as [string, string]] : []),
+    ["Graine", String(generation.seed)],
+    ...(typeof generation.elapsed_ms === "number" ? [["Durée", `${formatSeconds(generation.elapsed_ms)} s`] as [string, string]] : []),
+    // Idol publie le lacet et le tangage en radians, le champ en degrés (idol-feasibility.md).
+    ...(camera
+      ? ([["Lacet", deg(camera.yaw)], ["Tangage", deg(camera.pitch)], ["Distance", twoDecimals.format(camera.radius)], ["Champ", `${degrees.format(camera.fov)}°`]] as [string, string][])
+      : [["Caméra prédite", "non fournie, vue par défaut"] as [string, string]]),
+  ];
+  return (
+    <details open aria-label="Informations" className="absolute top-4 right-4 w-56 max-w-[calc(100%-2rem)] rounded-lg max-sm:top-16 [&:not([open])]:w-auto border border-[#2e3137] bg-[rgba(21,23,26,0.86)] p-2 text-[11px] text-[#c9c6bf]">
+      <summary className="min-h-6 cursor-pointer font-sans text-[12px] font-semibold text-[#e8e6e1]">Informations</summary>
+      <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt>{label}</dt>
+            <dd className="text-right font-mono break-words text-[#e8e6e1]">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
 }
 
 function errorMessage(error: unknown): string {
@@ -155,5 +189,10 @@ function GenerationResult({ id, api = defaultApi, download = downloadArtifact, S
       </Message>
     );
   }
-  return <Scene bytes={load.bytes} camera={load.camera} label={generation.source.filename} onError={onSceneError} />;
+  return (
+    <>
+      <Scene bytes={load.bytes} camera={load.camera} label={generation.source.filename} onError={onSceneError} />
+      <Information generation={generation} ply={ply} camera={load.camera} />
+    </>
+  );
 }
