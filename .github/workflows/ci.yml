@@ -75,6 +75,12 @@ jobs:
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Navigateur et bibliothèques système déjà présents : aucun apt ni téléchargement de Chromium au
+    # moment du test (des miroirs Ubuntu injoignables bloquaient l'étape). La version DOIT égaler celle
+    # de @playwright/test ; Renovate les met à jour ensemble (renovate.json).
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble@sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d
+      options: --ipc=host
     defaults:
       run:
         working-directory: frontend
@@ -93,7 +99,5 @@ jobs:
         working-directory: backend
         run: uv sync --frozen
       - run: npm ci
-      - name: Navigateur
-        run: npx playwright install --with-deps chromium
       - name: Parcours de bout en bout
         run: npm run e2e
