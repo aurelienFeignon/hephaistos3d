@@ -36,6 +36,7 @@ from hephaistos.api.schemas import (
 from hephaistos.api.uploads import register_upload
 from hephaistos.config import MIB, Settings
 from hephaistos.domain.errors import ErrorCode
+from hephaistos.domain.lifecycle import TERMINAL
 from hephaistos.persistence.models import Artifact, Attempt, Generation, SystemState, Worker
 from hephaistos.queue.broker import JobBroker, LeaseLost, utc
 from hephaistos.storage.deletion import DeletionConflict, delete_generation
@@ -192,6 +193,11 @@ class Resources:
             error = dict(
                 code=row.error_code, message=row.error_message, retryable=retryable, needs_diagnosis=row.needs_diagnosis
             )
+        # Même règle que la rétention du janitor : terminale, non protégée, rétention active.
+        auto_delete_after = None
+        days = self.settings.storage_retention_days
+        if days and row.status in TERMINAL and not row.protected and row.finished_at:
+            auto_delete_after = utc(row.finished_at) + timedelta(days=days)
         elapsed = None
         if row.started_at:
             elapsed = max(0, int((utc(row.finished_at or self.now()) - utc(row.started_at)).total_seconds() * 1000))
@@ -230,6 +236,7 @@ class Resources:
             next_attempt_at=stamp(row.not_before),
             error=error,
             protected=row.protected,
+            auto_delete_after=stamp(auto_delete_after),
             artifacts=[artifact_body(a) for a in context.artifacts.get(row.id, [])],
         )
 

@@ -16,6 +16,7 @@ const generation = (over: Partial<Generation> = {}) => ({
   progress: { stage: null, current: null, total: null, updated_at: null },
   source: { filename: "chaise.png", url: "/api/v1/generations/g1/source", width: 768, height: 512, has_alpha: true },
   artifacts: [],
+  auto_delete_after: null,
   ...over,
 }) as Generation;
 const artifact = (id: string, kind: string, size_bytes: number) => ({
@@ -90,6 +91,38 @@ describe("GenerationDetail", () => {
   it("n'offre aucun téléchargement tant que la génération n'est pas terminée", async () => {
     await show(apiOf({ generation: vi.fn(async () => ({ ...finished(), status: "RUNNING" }) as Generation) }));
     expect(screen.queryByRole("region", { name: "Télécharger" })).toBeNull();
+  });
+
+  it("annonce la date de suppression automatique (P4.8)", async () => {
+    await show(apiOf({ generation: vi.fn(async () => generation({ auto_delete_after: "2026-12-11T12:00:00Z" })) }));
+    const text = section("Conservation").textContent ?? "";
+    expect(text).toMatch(/Supprimée automatiquement après le 11 décembre 2026/);
+    expect(text).toContain("Protégez-la pour la conserver.");
+  });
+
+  it("signale une suppression imminente", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-12-09T12:00:00Z") });
+    try {
+      await show(apiOf({ generation: vi.fn(async () => generation({ auto_delete_after: "2026-12-11T12:00:00Z" })) }));
+      expect(within(section("Conservation")).getByText(/Supprimée automatiquement/).className).toContain("text-danger");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("dit qu'une génération protégée n'est jamais supprimée automatiquement", async () => {
+    await show(apiOf({ generation: vi.fn(async () => generation({ protected: true })) }));
+    expect(section("Conservation").textContent).toBe("ConservationProtégée : jamais supprimée automatiquement.");
+  });
+
+  it("dit quand la rétention est désactivée", async () => {
+    await show();
+    expect(section("Conservation").textContent).toContain("Conservée sans limite : la suppression automatique est désactivée.");
+  });
+
+  it("ne parle pas de conservation avant la fin", async () => {
+    await show(apiOf({ generation: vi.fn(async () => generation({ status: "QUEUED" })) }));
+    expect(screen.queryByRole("region", { name: "Conservation" })).toBeNull();
   });
 
   it("n'affiche pas de section Erreur sans erreur", async () => {

@@ -203,11 +203,18 @@ Précisions d'implémentation P2.9 :
   "attempt_count": 1, "max_retries": 3, "next_attempt_at": null,
   "error": null,
   "protected": false,
+  "auto_delete_after": null,
   "artifacts": []
 }
 ```
 
 En cas d'échec, `error` vaut `{"code", "message", "retryable", "needs_diagnosis"}`.
+
+`auto_delete_after` est l'instant après lequel la rétention automatique supprime la génération :
+`finished_at + STORAGE_RETENTION_DAYS`, l'effacement ayant lieu au cycle de maintenance suivant
+(au plus `STORAGE_CLEANUP_INTERVAL_HOURS` plus tard). Il vaut `null` pour une génération non terminée,
+protégée, ou quand la rétention est désactivée (`STORAGE_RETENTION_DAYS=0`). Le serveur le calcule avec
+la même règle que le janitor, pour que l'interface n'ait pas à la dupliquer.
 
 ### Routes
 

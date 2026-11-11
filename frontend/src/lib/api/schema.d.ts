@@ -427,6 +427,11 @@ export interface components {
             /** Attempt Count */
             attempt_count: number;
             /**
+             * Auto Delete After
+             * @description Date after which automatic retention deletes the generation, at the next maintenance cycle; null if it is not finished, protected, or retention is disabled
+             */
+            auto_delete_after: string | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -549,6 +554,11 @@ export interface components {
             artifacts: components["schemas"]["ArtifactView"][];
             /** Attempt Count */
             attempt_count: number;
+            /**
+             * Auto Delete After
+             * @description Date after which automatic retention deletes the generation, at the next maintenance cycle; null if it is not finished, protected, or retention is disabled
+             */
+            auto_delete_after: string | null;
             /**
              * Created At
              * Format: date-time

@@ -265,3 +265,18 @@ test("A4.4 les fichiers téléchargés sont ceux du serveur, octet pour octet (s
     expect(Buffer.compare(await direct.body(), bytes)).toBe(0);
   }
 });
+
+test("P4.8 la date de suppression automatique s'affiche et disparaît sous protection", async ({ page }, info) => {
+  const name = await completedGeneration(page, info);
+  await row(page, name).click();
+  const retention = detail(page).getByRole("region", { name: "Conservation" });
+  // Pile e2e : rétention par défaut, 30 jours.
+  await expect(retention).toContainText(/Supprimée automatiquement après le \d{1,2} \S+ \d{4}/);
+  const protect = detail(page).getByRole("button", { name: "Protéger" });
+  await protect.click();
+  await expect(protect).toHaveAttribute("aria-pressed", "true");
+  await expect(retention).toHaveText(/Protégée : jamais supprimée automatiquement\./);
+  await protect.click();
+  await expect(protect).toHaveAttribute("aria-pressed", "false");
+  await expect(retention).toContainText("Supprimée automatiquement après le");
+});

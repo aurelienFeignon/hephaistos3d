@@ -1,6 +1,6 @@
 import hashlib
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -8,11 +8,13 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 from ulid import ULID
 
+from hephaistos.api.app import create_app
 from hephaistos.config import Settings
 from hephaistos.janitor.service import Janitor
 from hephaistos.persistence.models import Artifact, Attempt, Generation, Worker
 from hephaistos.storage.deletion import delete_generation
 from hephaistos.storage.local import LocalStorage
+from tests.api_client import TestClient
 from tests.unit.test_queue import NOW, claim, get, job
 from tests.unit.test_queue import queue as queue
 
@@ -106,6 +108,23 @@ def test_retention_preserves_protected_active_and_recent(janitor, queue):
     assert not janitor.storage.source_dir(deleted).exists()
     for identifier in (protected, running, queued, recent):
         assert get(queue, identifier) is not None
+
+
+def test_announced_auto_delete_after_is_when_the_janitor_deletes(janitor, queue):
+    """P4.8 : la date publiée par l'API est le seuil réel de la rétention, à la seconde près."""
+    due = job(queue, status="COMPLETED", finished_at=NOW - timedelta(days=30, seconds=1))
+    early = job(queue, status="COMPLETED", finished_at=NOW - timedelta(days=30) + timedelta(seconds=1))
+    with TestClient(create_app(engine=queue.engine, settings=janitor.settings, now=lambda: NOW)) as client:
+        announced = {
+            identifier: datetime.fromisoformat(
+                client.get(f"/api/v1/generations/{identifier}").json()["auto_delete_after"]
+            )
+            for identifier in (due, early)
+        }
+    assert announced[due] < NOW < announced[early]
+    janitor.run_once()
+    assert get(queue, due) is None
+    assert get(queue, early) is not None
 
 
 def test_zero_retention_disables_automatic_deletion(janitor, queue):

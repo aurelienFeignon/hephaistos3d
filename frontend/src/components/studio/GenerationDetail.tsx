@@ -86,6 +86,27 @@ function Downloads({ artifacts }: { artifacts: Artifact[] }) {
   );
 }
 
+const deletionDate = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long", timeStyle: "short" });
+const IMMINENT_MS = 3 * 24 * 3600 * 1000;
+
+// P4.8 : la date vient du serveur, qui applique la même règle que la rétention du janitor.
+function Retention({ generation }: { generation: Generation }) {
+  // Instant figé au montage : le seuil se compte en jours, la précision du rendu suffit.
+  const [now] = useState(() => Date.now());
+  const after = generation.auto_delete_after;
+  let message: ReactNode;
+  if (generation.protected) message = <p className="text-[13px]">Protégée : jamais supprimée automatiquement.</p>;
+  else if (after) {
+    const imminent = new Date(after).getTime() - now < IMMINENT_MS;
+    message = (
+      <p className={`text-[13px] ${imminent ? "text-danger" : ""}`}>
+        {`Supprimée automatiquement après le ${deletionDate.format(new Date(after))}. Protégez-la pour la conserver.`}
+      </p>
+    );
+  } else message = <p className="text-[13px]">Conservée sans limite : la suppression automatique est désactivée.</p>;
+  return <Section title="Conservation">{message}</Section>;
+}
+
 function paramRows(params: Generation["params"], fields: FormField[]) {
   const known = fields.filter((field) => field.name in params).map((field) => ({ name: field.name, label: field.label, text: formatValue(field, params[field.name] as ParamValue) }));
   const names = new Set(fields.map((field) => field.name));
@@ -194,6 +215,7 @@ function Details({ api, generation, onClose, onChanged, onDeleted }: { api: Deta
       </div>
 
       {generation.status === "COMPLETED" && <Downloads artifacts={generation.artifacts} />}
+      {!active && <Retention generation={generation} />}
       {error && (
         <Section title="Erreur">
           <p className="font-mono text-[13px] text-danger">{error.code}</p>

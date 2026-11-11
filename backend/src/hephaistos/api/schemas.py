@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from hephaistos.system.dispatch import DispatchState
 
@@ -70,6 +70,10 @@ class GenerationView(BaseModel):
     next_attempt_at: datetime | None
     error: ErrorView | None
     protected: bool
+    auto_delete_after: datetime | None = Field(
+        description="Date after which automatic retention deletes the generation, at the next maintenance cycle; "
+        "null if it is not finished, protected, or retention is disabled"
+    )
     artifacts: list[ArtifactView]
 
 

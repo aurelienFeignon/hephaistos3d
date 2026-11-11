@@ -111,6 +111,36 @@ def test_missing_and_deleting_resources(client, queue):
     assert client.get("/api/v1/artifacts/missing").json()["code"] == "ARTIFACT_NOT_FOUND"
 
 
+def test_auto_delete_after_follows_the_retention_rule(client, queue):
+    """P4.8 : seuil après lequel le janitor supprime, null si rien ne sera supprimé automatiquement."""
+    finished = NOW - timedelta(days=2)
+    ended = {status: job(queue, status=status, finished_at=finished) for status in ("COMPLETED", "FAILED", "CANCELLED")}
+    kept = job(queue, status="COMPLETED", finished_at=finished, protected=True)
+    running = job(queue, status="RUNNING", started_at=NOW)
+    queued = job(queue)
+
+    def after(identifier):
+        return client.get(f"/api/v1/generations/{identifier}").json()["auto_delete_after"]
+
+    # Défaut : STORAGE_RETENTION_DAYS = 30.
+    for identifier in ended.values():
+        assert after(identifier) == (finished + timedelta(days=30)).isoformat().replace("+00:00", "Z")
+    assert after(kept) is None
+    assert after(running) is None
+    assert after(queued) is None
+    listed = {item["id"]: item["auto_delete_after"] for item in client.get("/api/v1/generations").json()["items"]}
+    assert listed[kept] is None and listed[ended["COMPLETED"]] is not None
+    # Lever la protection rend la date : la réponse du PATCH la porte déjà.
+    assert client.patch(f"/api/v1/generations/{kept}", json={"protected": False}).json()["auto_delete_after"]
+
+
+def test_auto_delete_after_is_null_when_retention_is_disabled(queue, tmp_path):
+    settings = Settings(hephaistos_data_dir=tmp_path, enable_fake_adapter=True, storage_retention_days=0)
+    identifier = job(queue, status="COMPLETED", finished_at=NOW)
+    with TestClient(create_app(engine=queue.engine, settings=settings, now=lambda: NOW)) as client:
+        assert client.get(f"/api/v1/generations/{identifier}").json()["auto_delete_after"] is None
+
+
 def test_protected_manual_deletion(client, queue):
     identifier = job(queue, protected=True)
     assert client.delete(f"/api/v1/generations/{identifier}").status_code == 204
