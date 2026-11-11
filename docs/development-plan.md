@@ -271,6 +271,7 @@ P4.4 implémenté et vérifié sans GPU le 2026-11-11, A4.4 démontré ([preuves
 P4.3 implémenté et vérifié sans GPU le 2026-11-11 ([preuves](validation/P4.3-information.md)).
 P4.8 implémenté et vérifié sans GPU le 2026-11-11 ([preuves](validation/P4.8-retention.md)).
 P4.5 validé le 2026-11-11 : changement de repère confirmé sur trois objets réels ([preuves](validation/P4.5-camera.md)).
+P4.6 mesurée le 2026-11-11 : SPZ et SOG divisent la taille par 5 à 6 sans écart visible ([rapport](exports-study.md)).
 
 | Tâche | Contenu |
 |---|---|
