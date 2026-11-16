@@ -309,6 +309,7 @@ glTF des splats immature.
 
 **Avancement au 2026-11-16** : P5.1 implémenté et vérifié sans GPU ([preuves](validation/P5.1-gpu-diagnostics.md)).
 P5.3 : couverture mesurée et seuils A5.5 appliqués en CI, images construites en CI ([preuves](validation/P5.3-ci.md)).
+P5.4 : [guide d'exploitation](operations.md) rédigé ; mise à jour et sauvegarde/restauration restent à rejouer de bout en bout.
 
 | Tâche | Contenu |
 |---|---|

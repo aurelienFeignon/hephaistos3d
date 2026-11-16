@@ -4,6 +4,7 @@
 Preuves et périmètre : [CPU](validation/P2.11-cpu.md) et [GPU](validation/P2.11-gpu.md).
 Les gates P0, P1 et P2 sont validés. Les corrections de sécurité préalables à P3 sont décrites
 dans le [compte rendu](security/remediation-P2-2026-11-05.md).
+Gestes d'exploitation (installation, mise à jour, sauvegarde, dépannage) : [operations.md](operations.md).
 Le service `frontend` est le seul à publier un port (ADR-0009), sur `127.0.0.1:3030` par défaut :
 l'API écoute sur 8000 uniquement dans le réseau interne. Voir les [preuves P3.9](validation/P3.9-frontend-compose.md).
 

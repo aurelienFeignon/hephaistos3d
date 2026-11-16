@@ -71,3 +71,4 @@ The design documents are written in French.
   [Data model](docs/data-model.md) · [API contract](docs/api-contract.md)
 - [Idol feasibility audit](docs/idol-feasibility.md) · [Gate P0 and evidence](docs/gates/P0.md)
 - [Architecture decision records](docs/decisions/README.md)
+- [Operations: install, update, backup, troubleshooting](docs/operations.md)

@@ -70,3 +70,4 @@ exigent une carte NVIDIA et les poids : ils se jouent à la main.
   [Modèle de données](docs/data-model.md) · [Contrat d'API](docs/api-contract.md)
 - [Audit de faisabilité d'Idol](docs/idol-feasibility.md) · [Gate P0 et preuves](docs/gates/P0.md)
 - [Décisions d'architecture (ADR)](docs/decisions/README.md)
+- [Exploitation : installation, mise à jour, sauvegarde, dépannage](docs/operations.md)
