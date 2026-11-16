@@ -34,8 +34,11 @@ jobs:
         run: uv run ruff format --check
       - name: Types (mypy strict)
         run: uv run mypy
-      - name: Tests
-        run: uv run pytest -rs
+      # A5.5 : 85 % hors adaptateur Idol (seuil dans pyproject.toml), puis 95 % pour le domaine et la file.
+      - name: Tests et couverture
+        run: uv run pytest -rs --cov --cov-report=term
+      - name: Couverture du domaine et de la file (A5.5)
+        run: uv run coverage report --include="*/hephaistos/domain/*,*/hephaistos/queue/*" --fail-under=95
       - name: Avis de sécurité des dépendances API
         run: |
           uv export --frozen --no-dev --no-emit-project --format requirements.txt --output-file /tmp/hephaistos-api-requirements.txt
@@ -70,6 +73,38 @@ jobs:
         run: npx next typegen && npx tsc --noEmit
       - name: Tests unitaires frontend
         run: npm test
+
+  # Construction des images de production (sans publication) : ce que `docker compose build` fera sur l'hôte.
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Image api (API, janitor, migrations)
+        run: docker build -f deploy/backend.Dockerfile --target api -t hephaistos3d/api:ci .
+      - name: Image frontend
+        run: docker build -f deploy/frontend.Dockerfile -t hephaistos3d/frontend:ci .
+      - name: Démarrage à vide de l'image api (import et migrations sur une base jetable)
+        run: |
+          docker run --rm --read-only --tmpfs /data:uid=1000,gid=1000 -e HEPHAISTOS_DATA_DIR=/data \
+            hephaistos3d/api:ci sh -c 'mkdir -p /data/db && alembic upgrade head && python -c "import hephaistos.api.app, hephaistos.janitor.service"'
+
+  # Image worker à part : torch CUDA pèse plusieurs Go, il faut d'abord libérer le disque du runner.
+  # Aucun GPU ici : on vérifie la construction et l'import du superviseur (qui n'importe pas torch).
+  image-worker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Libérer le disque du runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Image worker
+        run: docker build -f deploy/backend.Dockerfile --target worker -t hephaistos3d/worker:ci .
+      - name: Import du superviseur dans l'image
+        run: docker run --rm hephaistos3d/worker:ci python -c "import hephaistos.worker.supervisor"
+      - run: df -h /
 
   # Pile complète avec l'adaptateur factice : ni GPU, ni poids, ni secret.
   e2e:

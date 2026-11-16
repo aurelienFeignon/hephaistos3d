@@ -308,6 +308,7 @@ glTF des splats immature.
 **Objectif** : application stable et exploitable sur le serveur personnel.
 
 **Avancement au 2026-11-16** : P5.1 implémenté et vérifié sans GPU ([preuves](validation/P5.1-gpu-diagnostics.md)).
+P5.3 : couverture mesurée et seuils A5.5 appliqués en CI, images construites en CI ([preuves](validation/P5.3-ci.md)).
 
 | Tâche | Contenu |
 |---|---|

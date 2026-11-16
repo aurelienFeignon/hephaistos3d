@@ -11,7 +11,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
-.coverage
+.coverage*
 
 # Sorties de sondes et poids
 *.safetensors
