@@ -84,16 +84,32 @@ Précisions de lecture (P2.8) :
   "queue": {"queued": 2, "running": 1, "gpu_slots": 1},
   "dispatch": {"paused": false, "paused_by": null, "reason": null, "since": null},
   "gpu": {"free_vram_bytes": 11500000000, "min_free_vram_bytes": 8589934592, "vram_limit_bytes": null,
-          "waiting_reason": null},
+          "waiting_reason": null,
+          "last_error": {"code": "CUDA_ERROR", "message": "CUDA error: an illegal memory access was encountered",
+                         "at": "2026-11-15T09:12:40Z", "generation_id": "01J…", "attempt": 1}},
   "workers": [{
     "id": "hote:17:2026-11-02T18:00:00Z", "state": "BUSY", "waiting_reason": null, "last_heartbeat_at": "…",
+    "model": {"id": "idol", "state": "RESIDENT", "since": "2026-11-16T08:40:02Z"},
     "gpu": {"name": "NVIDIA GeForce RTX 5070", "compute_capability": "12.0",
-            "vram_total_bytes": 12821987328, "vram_free_bytes": 4120000000},
+            "vram_total_bytes": 12821987328, "vram_free_bytes": 4120000000,
+            "vram_used_bytes": 8700000000, "utilization_percent": 97},
     "adapters": [{"id": "idol", "available": true}]
   }],
   "storage": {"results_bytes": 1830000000, "free_bytes": 367000000000}
 }
 ```
+
+Diagnostics GPU (P5.1), lus sans CUDA ni sonde dans l'API :
+
+- `workers[].model` dit quel modèle le processus d'inférence du worker tient : `LOADING` pendant
+  le chargement, `RESIDENT` ensuite, jusqu'au déchargement après `MODEL_IDLE_UNLOAD_SECONDS`
+  d'inactivité. `since` est le démarrage de ce processus. `null` : aucun processus d'inférence.
+- `workers[].gpu.vram_used_bytes` et `utilization_percent` viennent du dernier relevé NVML du
+  worker : ils portent sur **tout le périphérique**, pas sur Hephaistos seul (le GPU est partagé).
+  `null` sans relevé.
+- `gpu.last_error` est la dernière tentative terminée en `CUDA_ERROR` ou `GPU_OOM`, toutes
+  générations visibles confondues, ou `null`. Elle n'expire pas : comparer `at` à l'instant présent.
+  Une génération supprimée emporte son erreur.
 
 `storage.results_bytes` est la somme SQL des tailles des artefacts référencés ; les fichiers
 orphelins ne sont pas inclus. `free_bytes` est le minimum libre sur les volumes persistants.

@@ -141,11 +141,20 @@ class QueueStatus(BaseModel):
     gpu_slots: int
 
 
+class GpuError(BaseModel):
+    code: str
+    message: str | None
+    at: datetime
+    generation_id: str
+    attempt: int
+
+
 class GpuStatus(BaseModel):
     free_vram_bytes: int | None
     min_free_vram_bytes: int
     vram_limit_bytes: int | None
     waiting_reason: str | None
+    last_error: GpuError | None
 
 
 class WorkerGpu(BaseModel):
@@ -153,6 +162,14 @@ class WorkerGpu(BaseModel):
     compute_capability: str | None
     vram_total_bytes: int | None
     vram_free_bytes: int
+    vram_used_bytes: int | None
+    utilization_percent: int | None
+
+
+class WorkerModel(BaseModel):
+    id: str
+    state: Literal["LOADING", "RESIDENT"]
+    since: datetime | None
 
 
 class WorkerView(BaseModel):
@@ -161,6 +178,7 @@ class WorkerView(BaseModel):
     waiting_reason: str | None
     last_heartbeat_at: datetime
     adapters: list[dict[str, Any]]
+    model: WorkerModel | None
     gpu: WorkerGpu
 
 

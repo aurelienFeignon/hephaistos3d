@@ -141,6 +141,12 @@ def test_success_reuses_child_and_unloads_after_idle(rig):
     until(supervisor, lambda: get(supervisor.broker, second).status == "COMPLETED")
     assert len(children) == 1
     assert children[0].calls == 2
+    with Session(supervisor.broker.engine) as session:
+        worker = session.get(Worker, "test-worker")
+        assert worker.state == "READY"
+        assert worker.inference_model_id == "fake"
+        assert worker.gpu["used_bytes"] == 2_000 * MIB
+        assert worker.gpu["utilization_percent"] == 0
     clock.elapsed += 901
     supervisor.tick()
     assert not children[0].is_alive()
@@ -148,6 +154,7 @@ def test_success_reuses_child_and_unloads_after_idle(rig):
         worker = session.get(Worker, "test-worker")
         assert worker.state == "IDLE"
         assert worker.inference_pid is None
+        assert worker.inference_model_id is None
 
 
 def test_low_vram_and_paused_dispatch_never_start_child(rig):

@@ -132,6 +132,7 @@ class Worker(Base):
     gpu_free_bytes: Mapped[int] = mapped_column(BigInteger)
     inference_pid: Mapped[int | None] = mapped_column(Integer)
     inference_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    inference_model_id: Mapped[str | None] = mapped_column(Text)
     child_deaths_window: Mapped[list[str]] = mapped_column(JSON, default=list)
     adapters: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     gpu: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

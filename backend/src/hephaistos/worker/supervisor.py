@@ -160,12 +160,19 @@ class Supervisor:
             gpu_free_bytes=self._gpu.free_bytes if self._gpu else 0,
             inference_pid=self.child.pid if self.child else None,
             inference_started_at=self.child_started_at,
+            inference_model_id=self.child_model,
             child_deaths_window=[d.isoformat() for d in self._deaths],
             adapters=[
                 dict(id=k, version=self.registry[k].descriptor.version, available=v.available, reason=v.reason)
                 for k, v in self.installations.items()
             ],
-            gpu=dict(name=self._gpu.name, total_bytes=self._gpu.total_bytes, free_bytes=self._gpu.free_bytes)
+            gpu=dict(
+                name=self._gpu.name,
+                total_bytes=self._gpu.total_bytes,
+                free_bytes=self._gpu.free_bytes,
+                used_bytes=self._gpu.used_bytes,
+                utilization_percent=self._gpu.utilization_percent,
+            )
             if self._gpu
             else {},
             current_generation_id=self.lease.generation_id if self.lease else None,

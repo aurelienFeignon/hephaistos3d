@@ -307,6 +307,8 @@ glTF des splats immature.
 
 **Objectif** : application stable et exploitable sur le serveur personnel.
 
+**Avancement au 2026-11-16** : P5.1 implémenté et vérifié sans GPU ([preuves](validation/P5.1-gpu-diagnostics.md)).
+
 | Tâche | Contenu |
 |---|---|
 | P5.1 | Diagnostics GPU dans `/system/status` (VRAM, état modèle, dernière erreur CUDA) |

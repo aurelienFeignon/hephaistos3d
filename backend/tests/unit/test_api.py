@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from hephaistos.api.app import create_app
 from hephaistos.config import Settings
-from hephaistos.persistence.models import Artifact, Worker
+from hephaistos.domain.errors import ErrorCode
+from hephaistos.persistence.models import Artifact, Generation, Worker
 from tests.api_client import TestClient
 from tests.unit.test_queue import NOW, claim, get, job
 from tests.unit.test_queue import queue as queue
@@ -52,6 +53,56 @@ def test_worker_availability_expires(client, queue):
     worker(queue, last_heartbeat_at=NOW - timedelta(seconds=61))
     assert client.get("/api/v1/models/fake").json()["available"] is False
     assert client.get("/api/v1/system/status").json()["gpu"]["free_vram_bytes"] is None
+
+
+def test_status_reports_gpu_diagnostics_per_worker(client, queue):
+    worker(
+        queue,
+        inference_model_id="fake",
+        inference_started_at=NOW - timedelta(minutes=5),
+        gpu={
+            "name": "test",
+            "total_bytes": 12 * 1024**3,
+            "free_bytes": 10**10,
+            "used_bytes": 2 * 10**9,
+            "utilization_percent": 37,
+        },
+    )
+    worker(queue, id="loading", state="LOADING", inference_model_id="fake", inference_started_at=NOW)
+    worker(queue, id="unloaded", state="IDLE", gpu={})
+    views = {w["id"]: w for w in client.get("/api/v1/system/status").json()["workers"]}
+    assert views["worker"]["model"] == {"id": "fake", "state": "RESIDENT", "since": "2025-12-31T23:55:00Z"}
+    assert views["worker"]["gpu"]["vram_used_bytes"] == 2 * 10**9
+    assert views["worker"]["gpu"]["utilization_percent"] == 37
+    assert views["loading"]["model"]["state"] == "LOADING"
+    assert views["unloaded"]["model"] is None
+    assert views["unloaded"]["gpu"]["vram_used_bytes"] is None
+    assert views["unloaded"]["gpu"]["utilization_percent"] is None
+
+
+def test_status_reports_last_gpu_error(client, queue):
+    assert client.get("/api/v1/system/status").json()["gpu"]["last_error"] is None
+    failures = [
+        (ErrorCode.CUDA_ERROR, "illegal memory access"),
+        (ErrorCode.GPU_OOM, "out of memory"),
+        (ErrorCode.INTERNAL, "unrelated"),
+    ]
+    ids = []
+    for minute, (code, message) in enumerate(failures):
+        ids.append(job(queue, max_retries=0))
+        at = NOW + timedelta(minutes=minute)
+        queue.fail(claim(queue, now=at), code, message, now=at + timedelta(seconds=10))
+    cuda, oom, _internal = ids
+    assert client.get("/api/v1/system/status").json()["gpu"]["last_error"] == {
+        "code": "GPU_OOM",
+        "message": "out of memory",
+        "at": "2026-01-01T00:01:10Z",
+        "generation_id": oom,
+        "attempt": 1,
+    }
+    with Session(queue.engine) as session, session.begin():
+        session.get(Generation, oom).deleting_at = NOW
+    assert client.get("/api/v1/system/status").json()["gpu"]["last_error"]["generation_id"] == cuda
 
 
 def test_queue_reasons_and_position(client, queue):

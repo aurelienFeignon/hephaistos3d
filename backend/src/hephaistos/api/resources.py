@@ -145,6 +145,28 @@ class Resources:
             )
         )
 
+    def last_gpu_error(self, session: Session) -> dict[str, Any] | None:
+        row = session.execute(
+            select(Attempt)
+            .join(Generation, Generation.id == Attempt.generation_id)
+            .where(
+                Attempt.error_code.in_([ErrorCode.CUDA_ERROR, ErrorCode.GPU_OOM]),
+                Attempt.finished_at.is_not(None),
+                Generation.deleting_at.is_(None),
+            )
+            .order_by(Attempt.finished_at.desc(), Attempt.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return dict(
+            code=row.error_code,
+            message=row.error_message,
+            at=stamp(row.finished_at),
+            generation_id=row.generation_id,
+            attempt=row.number,
+        )
+
     def available_workers(self, session: Session, model_id: str) -> list[Worker]:
         return [
             w
@@ -321,6 +343,7 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
                     min_free_vram_bytes=settings.gpu_min_free_vram_mb * MIB,
                     vram_limit_bytes=settings.gpu_vram_limit_mb * MIB or None,
                     waiting_reason=next((w.waiting_reason for w in workers if w.waiting_reason), None),
+                    last_error=service.last_gpu_error(session),
                 ),
                 workers=[
                     dict(
@@ -329,11 +352,20 @@ def register_resources(router: APIRouter, engine: Engine, settings: Settings, no
                         waiting_reason=w.waiting_reason,
                         last_heartbeat_at=stamp(w.last_heartbeat_at),
                         adapters=w.adapters,
+                        model=dict(
+                            id=w.inference_model_id,
+                            state="LOADING" if w.state == "LOADING" else "RESIDENT",
+                            since=stamp(w.inference_started_at),
+                        )
+                        if w.inference_model_id
+                        else None,
                         gpu=dict(
                             name=w.gpu.get("name"),
                             compute_capability=w.gpu.get("compute_capability"),
                             vram_total_bytes=w.gpu.get("total_bytes"),
                             vram_free_bytes=w.gpu_free_bytes,
+                            vram_used_bytes=w.gpu.get("used_bytes"),
+                            utilization_percent=w.gpu.get("utilization_percent"),
                         ),
                     )
                     for w in workers

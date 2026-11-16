@@ -475,10 +475,27 @@ export interface components {
             /** Waiting Reason */
             waiting_reason: string | null;
         };
+        /** GpuError */
+        GpuError: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Attempt */
+            attempt: number;
+            /** Code */
+            code: string;
+            /** Generation Id */
+            generation_id: string;
+            /** Message */
+            message: string | null;
+        };
         /** GpuStatus */
         GpuStatus: {
             /** Free Vram Bytes */
             free_vram_bytes: number | null;
+            last_error: components["schemas"]["GpuError"] | null;
             /** Min Free Vram Bytes */
             min_free_vram_bytes: number;
             /** Vram Limit Bytes */
@@ -665,10 +682,26 @@ export interface components {
             compute_capability: string | null;
             /** Name */
             name: string | null;
+            /** Utilization Percent */
+            utilization_percent: number | null;
             /** Vram Free Bytes */
             vram_free_bytes: number;
             /** Vram Total Bytes */
             vram_total_bytes: number | null;
+            /** Vram Used Bytes */
+            vram_used_bytes: number | null;
+        };
+        /** WorkerModel */
+        WorkerModel: {
+            /** Id */
+            id: string;
+            /** Since */
+            since: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "LOADING" | "RESIDENT";
         };
         /** WorkerView */
         WorkerView: {
@@ -684,6 +717,7 @@ export interface components {
              * Format: date-time
              */
             last_heartbeat_at: string;
+            model: components["schemas"]["WorkerModel"] | null;
             /** State */
             state: string;
             /** Waiting Reason */

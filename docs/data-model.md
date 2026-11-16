@@ -90,9 +90,10 @@ tentative est dans `attempt`.
 | `waiting_reason` | texte, nullable | `VRAM_INSUFFICIENT` \| `DISPATCH_PAUSED` |
 | `gpu_free_bytes` | entier | dernière VRAM libre lue par NVML |
 | `inference_pid`, `inference_started_at` | | processus d'inférence courant |
+| `inference_model_id` | | modèle tenu par ce processus (P5.1) ; null sans processus |
 | `child_deaths_window` | JSON | horodatages des morts récentes (seuil `DEGRADED`) |
 | `adapters` | JSON | `[{id, version, available, reason}]` |
-| `gpu` | JSON | nom, capacité, VRAM totale/libre, pilote, CUDA |
+| `gpu` | JSON | nom, capacité, VRAM totale/libre/utilisée (périphérique entier), taux d'utilisation, pilote, CUDA |
 | `current_generation_id` | ULID, nullable | |
 | `started_at`, `last_heartbeat_at` | | worker considéré mort après 3 × `JOB_LEASE_SECONDS` sans heartbeat |
 

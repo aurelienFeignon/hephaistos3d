@@ -10,13 +10,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const GIB = 1024 ** 3;
-const worker = (state: string) => ({ id: state, state, waiting_reason: null, last_heartbeat_at: "", adapters: [], gpu: { name: "x", compute_capability: null, vram_free_bytes: 4 * GIB, vram_total_bytes: 12 * GIB } });
+const worker = (state: string) => ({ id: state, state, waiting_reason: null, last_heartbeat_at: "", adapters: [], model: null, gpu: { name: "x", compute_capability: null, vram_free_bytes: 4 * GIB, vram_total_bytes: 12 * GIB, vram_used_bytes: null, utilization_percent: null } });
 function status(over: Partial<SystemStatus> = {}): SystemStatus {
   return {
     version: "1", database: { ok: true }, storage: { free_bytes: 0, results_bytes: 0 },
     queue: { queued: 0, running: 0, gpu_slots: 1 },
     dispatch: { paused: false, paused_by: null, reason: null, since: null },
-    gpu: { free_vram_bytes: 11.1 * GIB, min_free_vram_bytes: 0, vram_limit_bytes: null, waiting_reason: null },
+    gpu: { free_vram_bytes: 11.1 * GIB, min_free_vram_bytes: 0, vram_limit_bytes: null, waiting_reason: null, last_error: null },
     workers: [worker("READY")],
     ...over,
   };
@@ -67,7 +67,7 @@ describe("SystemBar", () => {
   });
 
   it("ne donne pas de chiffre sans mesure de VRAM", async () => {
-    show(status({ workers: [], gpu: { free_vram_bytes: null, min_free_vram_bytes: 0, vram_limit_bytes: null, waiting_reason: null } }));
+    show(status({ workers: [], gpu: { free_vram_bytes: null, min_free_vram_bytes: 0, vram_limit_bytes: null, waiting_reason: null, last_error: null } }));
     expect(await screen.findByText("VRAM inconnue")).toBeTruthy();
   });
 
@@ -82,7 +82,7 @@ describe("SystemBar", () => {
     await screen.findByText(/VRAM libre/);
     expect(screen.queryByText(/Plafond/)).toBeNull();
     view.unmount();
-    show(status({ gpu: { free_vram_bytes: GIB, min_free_vram_bytes: 0, vram_limit_bytes: 10 * GIB, waiting_reason: null } }));
+    show(status({ gpu: { free_vram_bytes: GIB, min_free_vram_bytes: 0, vram_limit_bytes: 10 * GIB, waiting_reason: null, last_error: null } }));
     expect(await screen.findByText("Plafond 10 Go")).toBeTruthy();
   });
 
