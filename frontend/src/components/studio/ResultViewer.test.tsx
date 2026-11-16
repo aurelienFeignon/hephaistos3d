@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Generation } from "@/lib/api/client";
@@ -88,6 +88,9 @@ describe("ResultViewer", () => {
     });
     render(<ResultViewer id="g1" api={api(generation())} download={download} Scene={Scene} />);
     const bar = await screen.findByRole("progressbar", { name: "Téléchargement du fichier 3D" });
+    // La barre peut être dans le DOM avant que l'effet qui lance le téléchargement ait tourné (mise à
+    // jour hors act, effet différé) : attendre l'appel, sinon la progression part dans le vide (vu en CI).
+    await waitFor(() => expect(download).toHaveBeenCalledWith("/dl/ply1", expect.anything()));
     act(() => report(4_200_000, 17_000_000));
     expect(bar.getAttribute("aria-valuenow")).toBe("25");
     expect(screen.getByText("4,2 / 17,0 Mo")).toBeTruthy();
