@@ -150,3 +150,26 @@ def test_kill_before_start_prevents_late_child_creation(tmp_path):
     with pytest.raises(RuntimeError):
         process.start(timeout_s=10)
     assert not process.is_alive()
+
+
+def test_child_logs_go_to_stderr_never_to_stdout(capsys, tmp_path):
+    # Sous la CLI, l'enfant hérite de son stdout, réservé au résumé JSON (A1.2, rouge du 05/11 au 17/11).
+    import logging
+    from multiprocessing import Event, Pipe
+
+    from structlog.contextvars import clear_contextvars
+
+    from hephaistos.observability import logging_context
+    from hephaistos.worker.inference import _child_main
+
+    _parent, child = Pipe()
+    try:
+        with logging_context("test"):
+            with pytest.raises(SystemExit):
+                _child_main("inconnu", tmp_path, {}, child, Event())
+            logging.getLogger("huggingface_hub.hf_api").warning("Could not reach the Hub")
+    finally:
+        clear_contextvars()
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert "Could not reach the Hub" in err

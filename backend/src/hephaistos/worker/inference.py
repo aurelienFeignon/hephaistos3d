@@ -265,7 +265,8 @@ def _child_main(adapter_id: str, models_root: Path, options: dict[str, Any], con
     from hephaistos.observability import configure_logging
     from hephaistos.storage.local import UnsafePath, validate_id
 
-    configure_logging("inference")
+    # stderr : sous la CLI, l'enfant hérite de son stdout, réservé au résumé JSON.
+    configure_logging("inference", stream=sys.stderr)
     context = options.pop("log_context", {})
     bind_contextvars(model_id=adapter_id, **context)
     adapter = build_registry(enable_fake=True).get(adapter_id)
