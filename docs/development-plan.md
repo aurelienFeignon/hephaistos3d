@@ -309,7 +309,16 @@ glTF des splats immature.
 
 **Avancement au 2026-11-16** : P5.1 implémenté et vérifié sans GPU ([preuves](validation/P5.1-gpu-diagnostics.md)).
 P5.3 : couverture mesurée et seuils A5.5 appliqués en CI, images construites en CI ([preuves](validation/P5.3-ci.md)).
-P5.4 : [guide d'exploitation](operations.md) rédigé ; mise à jour et sauvegarde/restauration restent à rejouer de bout en bout.
+P5.4 : [guide d'exploitation](operations.md) rédigé.
+
+**Avancement au 2026-11-17** (GPU réel, pile Compose complète) :
+- P5.4 : mise à jour et sauvegarde/restauration rejouées de bout en bout, guide corrigé ([preuves](validation/P5.4-exploitation.md)).
+- P5.2 : pic mesuré par préréglage, identique (≈ 7 290 Mio) ; `vram_required_bytes` inchangé. Constat : le
+  modèle est rechargé à chaque génération sur une carte de 12 Go, comportement conservé ([preuves](validation/P5.2-memoire.md)).
+- P5.5 / A5.4 : versions identiques après reconstruction sur un builder vierge ([preuves](validation/P5.5-reproductibilite.md)).
+- P5.6 : A5.1 réussi (50/50) ; A5.2 (reformulé) réussi, reprise sans intervention
+  ([preuves](validation/P5.6-endurance.md)). A5.3 en observation depuis le 2026-11-17.
+- A5.6 : tests GPU 13/13 après correction d'une régression de la CLI ([preuves](validation/A5.6-tests-gpu.md)).
 
 | Tâche | Contenu |
 |---|---|
@@ -325,7 +334,7 @@ P5.4 : [guide d'exploitation](operations.md) rédigé ; mise à jour et sauvegar
 | # | Critère |
 |---|---|
 | A5.1 | Endurance : 50 générations Idol en file (préréglages mélangés), 0 génération bloquée, 0 incohérence au rapprochement |
-| A5.2 | Redémarrage complet de l'hôte pendant une génération : reprise sans intervention |
+| A5.2 | Arrêt brutal de tous les conteneurs de l'installation pendant une génération (plantage, et non arrêt demandé) : reprise sans intervention. *Reformulé le 2026-11-17 : le critère initial, un redémarrage complet de l'hôte, n'est pas jouable sur un hôte partagé ; la variante ne couvre ni la perte du cache de pages ni le retour du GPU sur le bus.* |
 | A5.3 | Observation sur au moins 7 jours d'usage normal : aucune génération démarrée avec une VRAM libre sous `GPU_MIN_FREE_VRAM_MB`, et 0 octet de VRAM tenu par Hephaistos après chaque `MODEL_IDLE_UNLOAD_SECONDS` d'inactivité (journaux + NVML) |
 | A5.4 | `docker compose build --no-cache` sur une machine propre produit les mêmes versions (comparaison des listes `uv pip freeze` / `npm ls`) |
 | A5.5 | Couverture backend hors adaptateur Idol ≥ 85 % des lignes ; domaine et file ≥ 95 % |

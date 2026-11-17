@@ -5,9 +5,9 @@ Guide pour l'administrateur d'une installation sur un serveur personnel. Il comp
 et ce guide rassemble les gestes d'exploitation. Toutes les commandes se lancent depuis la racine
 du dépôt.
 
-> ⚠️ État au 2026-11-16 : chaque commande vient de la configuration et de gestes déjà validés en
-> P2.11, P3.9 et A4.1. Les procédures de **mise à jour** et de **sauvegarde/restauration** n'ont pas encore été
-> rejouées de bout en bout ; elles le seront avant le gate P5.
+> État au 2026-11-17 : l'installation, la **mise à jour** (avec une migration) et la
+> **sauvegarde/restauration** ont été rejouées de bout en bout sur une installation jetable avec GPU
+> ([preuves](validation/P5.4-exploitation.md)).
 
 ## 1. Installation
 
@@ -162,8 +162,9 @@ cp .env "/chemin/des/sauvegardes/hephaistos-$stamp.env" && chmod 600 "/chemin/de
 docker compose --profile gpu up -d
 ```
 
-Gardez les trois fichiers `-wal` et `-shm` avec la base. Ne copiez jamais `hephaistos.sqlite3` seul
-pendant que la pile tourne.
+Après un arrêt propre, SQLite a reporté son journal dans la base : `var/db/` ne contient alors
+souvent que `hephaistos.sqlite3`, et c'est normal. S'ils sont présents, gardez les fichiers `-wal` et
+`-shm` avec la base. Ne copiez jamais `hephaistos.sqlite3` seul pendant que la pile tourne.
 
 ### Restauration
 
@@ -173,6 +174,7 @@ mv var/db var/db.avant-restauration         # garder l'état courant tant que la
 mv var/sources var/sources.avant-restauration
 mv var/results var/results.avant-restauration
 mv var/logs var/logs.avant-restauration
+mv var/tmp var/tmp.avant-restauration       # sinon il garde des répertoires de générations postérieures à la sauvegarde
 mkdir -p var/{db,sources,results,logs,tmp}
 tar -C var -xzf /chemin/des/sauvegardes/hephaistos-<horodatage>.tar.gz
 chown -R "$(id -u):$(id -g)" var/db var/sources var/results var/logs   # = HEPHAISTOS_UID/GID
@@ -200,7 +202,7 @@ docker compose --profile gpu up -d
 | Worker `DEGRADED`, distribution suspendue par `system` | trois morts de l'enfant d'inférence en dix minutes | lire `gpu.last_error` et les journaux de tentative, corriger, puis **reprendre la distribution** depuis le Studio (aucun redémarrage nécessaire) |
 | Générations en `CUDA_ERROR` ou `GPU_OOM` | contexte CUDA compromis, ou mémoire insuffisante pour ce préréglage | ces erreurs se relancent automatiquement ; si elles se répètent, baisser le préréglage ou libérer la VRAM |
 | Soumission refusée en 429 | file pleine (`QUEUE_MAX_ACTIVE`) ou upload déjà en cours | attendre ; ajuster le réglage si besoin |
-| Soumission refusée en 507 | budget disque (`STORAGE_MAX_BYTES`) ou marge libre (`STORAGE_MIN_FREE_BYTES`) | supprimer des générations ; vérifier `df -h` ; la rétention (`STORAGE_RETENTION_DAYS`) purge les générations non protégées |
+| Soumission refusée en 507 | budget disque (`STORAGE_MAX_BYTES`) ou marge libre (`STORAGE_MIN_FREE_BYTES`). Chaque génération active réserve environ 640 Mo : avec les réglages par défaut, la file plafonne vers **33 générations actives**, bien avant `QUEUE_MAX_ACTIVE` | attendre que la file se vide, ou relever `STORAGE_MAX_BYTES` ; supprimer des générations ; vérifier `df -h` ; la rétention (`STORAGE_RETENTION_DAYS`) purge les générations non protégées |
 | Service `unhealthy` | le healthcheck échoue, mais Docker ne relance pas un processus vivant | lire ses logs ; `docker compose restart <service>` si nécessaire |
 | « WebGL est indisponible dans ce navigateur » | accélération matérielle désactivée ou pilote bloqué | activer l'accélération matérielle du navigateur ; Chrome et Firefox sont vérifiés (A4.1) |
 
