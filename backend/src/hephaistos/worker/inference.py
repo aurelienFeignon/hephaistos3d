@@ -26,7 +26,6 @@ from hephaistos.adapters.base import GenerationInput, GenerationOutput, LoadCont
 from hephaistos.domain.errors import ErrorCode
 
 EXIT_CUDA_COMPROMISED = 75  # EX_TEMPFAIL : contexte CUDA présumé compromis, un enfant neuf le remplacera
-MAX_CONSECUTIVE_OOM = 3
 _CUDA_EXIT_GRACE_S = 5.0
 
 
@@ -110,7 +109,7 @@ class InferenceLoadError(RuntimeError):
 
 
 class InferenceProcess:
-    """Un enfant d'inférence : chargé une fois, conservé entre les jobs, terminé à la demande."""
+    """Un enfant d'inférence : un modèle chargé pour une génération, puis terminé (ADR-0015)."""
 
     def __init__(self, adapter_id: str, *, models_root: Path, options: Mapping[str, Any] | None = None) -> None:
         self.adapter_id = adapter_id
@@ -283,13 +282,12 @@ def _child_main(adapter_id: str, models_root: Path, options: dict[str, Any], con
     conn.send(_Loaded(time.perf_counter() - started))
 
     hooks = _PipeHooks(conn, cancel)
-    consecutive_oom = 0
     while True:
         message = conn.recv()
         if isinstance(message, _Shutdown):
             adapter.unload()
             sys.exit(0)
-        # Reused children must correlate library logs with the current generation.
+        # Library logs must carry the generation the child is serving.
         generation_id: str | None
         attempt_id: str | None
         try:
@@ -306,14 +304,9 @@ def _child_main(adapter_id: str, models_root: Path, options: dict[str, Any], con
         except Exception as exc:  # noqa: BLE001 — toute erreur est classée ; l'inconnue devient INTERNAL
             error = adapter.classify_error(exc)
             outcome = Failed(error.code, error.message, traceback.format_exc())
-        consecutive_oom = (
-            consecutive_oom + 1 if isinstance(outcome, Failed) and outcome.code is ErrorCode.GPU_OOM else 0
-        )
         conn.send(outcome)
 
         if isinstance(outcome, Failed) and outcome.code is ErrorCode.CUDA_ERROR:
-            sys.exit(EXIT_CUDA_COMPROMISED)
-        if consecutive_oom >= MAX_CONSECUTIVE_OOM:
             sys.exit(EXIT_CUDA_COMPROMISED)
         try:
             adapter.health_check()

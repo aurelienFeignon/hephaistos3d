@@ -22,9 +22,8 @@ quand il croissait. Elle a été essayée en P0 puis abandonnée (voir « Altern
 - **Plafond optionnel** `GPU_VRAM_LIMIT_MB` (défaut 0 = aucun) : le processus d'inférence appelle
   `torch.cuda.set_per_process_memory_fraction`. Au-delà, l'OOM reste dans Hephaistos (erreur
   `GPU_OOM` du job) ; il n'affecte pas les autres processus.
-- **Rien n'est gardé au repos** : le processus d'inférence se termine à la fin de chaque génération
-  (ADR-0015, qui remplace le déchargement à l'inactivité de l'ADR-0003), ce qui rend toute la VRAM,
-  contexte compris.
+- **Rien n'est gardé au repos** : le processus d'inférence se termine après
+  `MODEL_IDLE_UNLOAD_SECONDS` (ADR-0003, option B), ce qui rend toute la VRAM, contexte compris.
 - **Contrôle manuel** : `worker` est dans le profil Compose `gpu`. `docker compose up -d` ne touche
   pas au GPU ; `docker compose stop worker` rend toute la VRAM. Geste recommandé avant une autre
   charge lourde.

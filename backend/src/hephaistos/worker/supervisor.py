@@ -49,6 +49,9 @@ from hephaistos.worker.inference import (
 log = logging.getLogger(__name__)
 
 
+CHILD_RELEASE_GRACE_S = 10.0  # health check + unload after an outcome, before SIGKILL
+
+
 class Clock(Protocol):
     def now(self) -> datetime: ...
     def monotonic(self) -> float: ...
@@ -205,9 +208,12 @@ class Supervisor:
                 state.paused_at = state.updated_at = now
                 session.commit()
 
-    def _drop_child(self, *, unexpected: bool = False) -> None:
-        if self.child:
-            self.child.shutdown(grace_s=0)
+    def _drop_child(self, *, unexpected: bool = False, grace_s: float = 0) -> None:
+        code = self.child.shutdown(grace_s=grace_s) if self.child else 0
+        if code != 0:
+            # The child runs a CUDA health check after each outcome and exits non-zero when its
+            # context is compromised: that, or having to be killed, is a death like any crash.
+            unexpected = True
         self.child = None
         self.child_model = None
         self.child_started_at = None
@@ -256,9 +262,9 @@ class Supervisor:
         self._future = None
         self._phase = ""
         self._cancel_at = None
-        # One inference process per generation (ADR-0003, 2026-11-19): the shared GPU gets its
-        # memory back as soon as a generation ends, whatever the card or the admission threshold.
-        self._drop_child()
+        # One inference process per generation (ADR-0015): the shared GPU gets its memory back as
+        # soon as a generation ends. The grace lets the child finish its health check and unload.
+        self._drop_child(grace_s=CHILD_RELEASE_GRACE_S)
         if lease:
             try:
                 self._cleanup_attempt(lease)
@@ -477,8 +483,6 @@ class Supervisor:
         if self.lease:
             self._active()
             return
-        if self.child and not self.child.is_alive():
-            self._drop_child(unexpected=True)
         if self._stop_at is not None:
             self._drop_child()
             self.state = "STOPPING"

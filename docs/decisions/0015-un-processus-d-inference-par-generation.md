@@ -1,6 +1,7 @@
 # ADR-0015 — Un processus d'inférence par génération
 
-- **Statut** : Accepté (2026-11-19) — remplace la conservation de l'enfant entre jobs de l'ADR-0003
+- **Statut** : Accepté (2026-11-19) — remplace la conservation de l'enfant entre jobs de l'ADR-0003,
+  et le déchargement après `MODEL_IDLE_UNLOAD_SECONDS` cité par l'ADR-0011 (« Rien n'est gardé au repos »)
 - **Date** : 2026-11-19
 
 ## Contexte
@@ -21,6 +22,12 @@ modèle résident retiendrait la VRAM dont le suivant, ou une autre application,
   charge le modèle du job.
 - Le réglage `MODEL_IDLE_UNLOAD_SECONDS` est **supprimé**, sans remplacement : il n'y a plus de
   modèle au repos à décharger. Une variable restée dans un `.env` est ignorée.
+- La fin est **propre** : le superviseur laisse à l'enfant jusqu'à 10 s pour finir son contrôle de
+  santé CUDA et décharger le modèle, puis le tue. Une sortie non nulle (contexte compromis) ou un
+  `SIGKILL` compte comme une mort d'enfant : trois en dix minutes suspendent la distribution, comme avant.
+- Le compteur de trois OOM consécutifs dans un même enfant disparaît : un enfant ne sert plus qu'un
+  job, et la fragmentation qu'il visait ne peut plus s'accumuler. Un OOM reste un échec relançable,
+  borné par `JOB_MAX_RETRIES`, et l'admission refuse de démarrer sous `GPU_MIN_FREE_VRAM_MB`.
 - Inchangé : superviseur sans contexte CUDA, enfant en `spawn`, `SIGKILL` toujours possible,
   contrôle NVML à l'admission, profil Compose `gpu`.
 
@@ -29,6 +36,8 @@ modèle résident retiendrait la VRAM dont le suivant, ou une autre application,
   la taille de la carte. Le critère A5.3 se lit « 0 octet entre deux générations ».
 - Coût accepté : un chargement par génération, **12 s médian** (11 à 29 s) mesuré en P5.2, soit
   environ 26 % d'une génération Équilibré. C'était déjà le coût réel sur cette carte.
+- Le chargement entre désormais dans `JOB_TIMEOUT_SECONDS` à chaque génération (avant : la première
+  seulement). Le défaut, 1 800 s, couvre largement 12-29 s de chargement et ~60 s de génération.
 - Changer de modèle d'une génération à l'autre ne coûte rien de plus : c'est le cas général.
 - L'état de worker `READY` (modèle chargé, sans job) n'est plus jamais produit. Il reste dans
   l'énumération en base et dans le contrat d'API pour ne pas exiger de migration. `workers[].model`

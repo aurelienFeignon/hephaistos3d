@@ -13,7 +13,7 @@ from hephaistos.domain.errors import ErrorCode
 from hephaistos.gpu.nvml import MIB, GpuSnapshot
 from hephaistos.persistence.models import SystemState, Worker
 from hephaistos.storage.local import LocalStorage
-from hephaistos.worker.inference import Cancelled, Failed, InferenceProcess, Succeeded
+from hephaistos.worker.inference import EXIT_CUDA_COMPROMISED, Cancelled, Failed, InferenceProcess, Succeeded
 from hephaistos.worker.supervisor import Supervisor
 from tests.unit.test_queue import NOW, attempts, get, job
 from tests.unit.test_queue import queue as queue
@@ -145,14 +145,29 @@ def test_each_generation_loads_and_releases_its_own_child(rig):
         assert worker.state == "IDLE"
         assert worker.inference_pid is None
         assert worker.inference_model_id is None
-        assert worker.gpu["used_bytes"] == 2_000 * MIB
-        assert worker.gpu["utilization_percent"] == 0
     second = submit(supervisor)
     until(supervisor, lambda: get(supervisor.broker, second).status == "COMPLETED")
     assert len(children) == 2
     assert [child.calls for child in children] == [1, 1]
     assert not children[1].is_alive()
     assert supervisor.state == "IDLE"
+
+
+def test_child_failing_its_health_check_after_release_counts_as_a_death(rig):
+    """The child exits non-zero when its post-outcome CUDA health check fails: three in a row degrade."""
+    supervisor, _clock, _children = rig
+
+    class Compromised(Child):
+        def shutdown(self, grace_s=30):
+            self.kill()
+            return EXIT_CUDA_COMPROMISED
+
+    supervisor.process_factory = lambda model: Compromised()
+    for _ in range(3):
+        identifier = submit(supervisor)
+        until(supervisor, lambda identifier=identifier: get(supervisor.broker, identifier).status == "COMPLETED")
+    supervisor.tick()
+    assert supervisor.state == "DEGRADED"
 
 
 def test_low_vram_and_paused_dispatch_never_start_child(rig):

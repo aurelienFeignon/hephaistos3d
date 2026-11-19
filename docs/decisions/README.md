@@ -12,7 +12,7 @@
 | [0008](0008-mises-a-jour-par-interrogation.md) | Mises à jour du frontend par interrogation | Accepté (2026-11-02) |
 | [0009](0009-exposition-reseau-minimale.md) | Exposition réseau minimale | Accepté (2026-11-02, D5 : localhost d'abord) |
 | [0010](0010-poids-installes-hors-ligne.md) | Poids installés à la main, inférence hors ligne | Accepté (2026-11-02, D3/D4) |
-| [0011](0011-partage-du-gpu-sans-preemption.md) | Partage du GPU : contrôle à l'admission, sans préemption | Accepté (2026-11-03, D2) |
+| [0011](0011-partage-du-gpu-sans-preemption.md) | Partage du GPU : contrôle à l'admission, sans préemption | Accepté (2026-11-03, D2) ; déchargement remplacé par 0015 |
 | [0012](0012-modes-d-execution-idol.md) | Modes d'exécution d'Idol | Accepté (2026-11-02, ajustement 5) ; défaut fixé après G0.5 |
 | [0013](0013-erreurs-non-classees-non-relancees.md) | Erreurs non classées : diagnostic avant relance | Accepté (2026-11-02, D8) |
 | [0014](0014-valeurs-des-preselections.md) | Valeurs des préréglages d'Idol | Accepté (2026-11-03, P1.10) |
