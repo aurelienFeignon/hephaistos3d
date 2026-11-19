@@ -23,8 +23,12 @@ modèle résident retiendrait la VRAM dont le suivant, ou une autre application,
 - Le réglage `MODEL_IDLE_UNLOAD_SECONDS` est **supprimé**, sans remplacement : il n'y a plus de
   modèle au repos à décharger. Une variable restée dans un `.env` est ignorée.
 - La fin est **propre** : le superviseur laisse à l'enfant jusqu'à 10 s pour finir son contrôle de
-  santé CUDA et décharger le modèle, puis le tue. Une sortie non nulle (contexte compromis) ou un
-  `SIGKILL` compte comme une mort d'enfant : trois en dix minutes suspendent la distribution, comme avant.
+  santé CUDA et sortir (sans `unload` : la sortie rend toute la VRAM), puis le tue. Une sortie non
+  nulle (contexte compromis) ou un `SIGKILL` compte comme une mort d'enfant : trois en dix minutes
+  suspendent la distribution, comme avant. Les arrêts voulus (arrêt du worker, annulation au-delà du
+  délai, bail perdu) tuent l'enfant sans compter de mort.
+- `InferenceProcess` sait toujours servir plusieurs jobs (la sonde des préréglages en enchaîne) :
+  « un job par enfant » est la règle du superviseur, pas une limite du processus.
 - Le compteur de trois OOM consécutifs dans un même enfant disparaît : un enfant ne sert plus qu'un
   job, et la fragmentation qu'il visait ne peut plus s'accumuler. Un OOM reste un échec relançable,
   borné par `JOB_MAX_RETRIES`, et l'admission refuse de démarrer sous `GPU_MIN_FREE_VRAM_MB`.

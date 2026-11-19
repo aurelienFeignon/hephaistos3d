@@ -49,7 +49,7 @@ from hephaistos.worker.inference import (
 log = logging.getLogger(__name__)
 
 
-CHILD_RELEASE_GRACE_S = 10.0  # health check + unload after an outcome, before SIGKILL
+CHILD_RELEASE_GRACE_S = 10.0  # post-outcome health check and exit, before SIGKILL
 
 
 class Clock(Protocol):
@@ -105,7 +105,6 @@ class Supervisor:
         self.state = "IDLE"
         self.waiting_reason: str | None = None
         self.child: Inference | None = None
-        self.child_model: str | None = None
         self.child_started_at: datetime | None = None
         self.lease: Lease | None = None
         self._future: Future[float | Outcome] | None = None
@@ -162,7 +161,7 @@ class Supervisor:
             gpu_free_bytes=self._gpu.free_bytes if self._gpu else 0,
             inference_pid=self.child.pid if self.child else None,
             inference_started_at=self.child_started_at,
-            inference_model_id=self.child_model,
+            inference_model_id=self.lease.model_id if self.child and self.lease else None,
             child_deaths_window=[d.isoformat() for d in self._deaths],
             adapters=[
                 dict(id=k, version=self.registry[k].descriptor.version, available=v.available, reason=v.reason)
@@ -208,17 +207,22 @@ class Supervisor:
                 state.paused_at = state.updated_at = now
                 session.commit()
 
-    def _drop_child(self, *, unexpected: bool = False, grace_s: float = 0) -> None:
-        code = self.child.shutdown(grace_s=grace_s) if self.child else 0
-        if code != 0:
-            # The child runs a CUDA health check after each outcome and exits non-zero when its
-            # context is compromised: that, or having to be killed, is a death like any crash.
-            unexpected = True
+    def _drop_child(self, *, unexpected: bool = False) -> None:
+        """Kills the child at once; callers say whether that is a death."""
+        if self.child:
+            self.child.shutdown(grace_s=0)
         self.child = None
-        self.child_model = None
         self.child_started_at = None
         if unexpected:
             self._death()
+
+    def _end_child(self) -> None:
+        """Normal end of a generation (ADR-0015): the child passes its CUDA health check and exits.
+
+        A non-zero exit (compromised context) or having to be killed counts as a death.
+        """
+        if self.child:
+            self._drop_child(unexpected=self.child.shutdown(grace_s=CHILD_RELEASE_GRACE_S) != 0)
 
     def _cleanup_attempt(self, lease: Lease) -> None:
         path = self.storage.attempt_dir(lease.generation_id, lease.attempt_id)
@@ -262,9 +266,8 @@ class Supervisor:
         self._future = None
         self._phase = ""
         self._cancel_at = None
-        # One inference process per generation (ADR-0015): the shared GPU gets its memory back as
-        # soon as a generation ends. The grace lets the child finish its health check and unload.
-        self._drop_child(grace_s=CHILD_RELEASE_GRACE_S)
+        # One inference process per generation (ADR-0015): the GPU is shared.
+        self._end_child()
         if lease:
             try:
                 self._cleanup_attempt(lease)
@@ -484,7 +487,6 @@ class Supervisor:
             self._active()
             return
         if self._stop_at is not None:
-            self._drop_child()
             self.state = "STOPPING"
             self._publish()
             return
@@ -558,7 +560,6 @@ class Supervisor:
                     return
                 # No child survives a generation (`_release`), so every claim loads its model.
                 self.child = self.process_factory(lease.model_id)
-                self.child_model = lease.model_id
                 self.child_started_at = self.clock.now()
                 self.state = "LOADING"
                 self._journal("model_loading")
@@ -582,7 +583,6 @@ class Supervisor:
             except LeaseLost:
                 pass
             self._release()
-        self._drop_child()
         self._executor.shutdown(wait=True, cancel_futures=True)
         self.state = "STOPPING"
         self._publish(force=True)

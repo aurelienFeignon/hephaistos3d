@@ -76,8 +76,10 @@ class Child:
         self.finish.set()
 
     def shutdown(self, grace_s=30):
+        # Like InferenceProcess: a live child given no grace is killed (-9).
+        code = -9 if self.alive and grace_s == 0 else 0
         self.kill()
-        return 0
+        return code
 
 
 @pytest.fixture
@@ -234,6 +236,7 @@ def test_stop_interrupts_after_grace_without_consuming_retry_budget(rig):
     assert get(supervisor.broker, identifier).status == "QUEUED"
     assert get(supervisor.broker, identifier).attempt_count == 0
     assert attempts(supervisor.broker)[0].outcome == "INTERRUPTED"
+    assert supervisor._deaths == []  # a requested stop is not a crash
 
 
 def test_stale_lease_kills_child_without_publishing(rig):
@@ -249,6 +252,7 @@ def test_stale_lease_kills_child_without_publishing(rig):
     assert not child.alive
     assert not supervisor.storage.result_dir(identifier).exists()
     assert attempts(supervisor.broker)[0].outcome == "ABANDONED"
+    assert supervisor._deaths == []  # killing on a lost lease is not a crash
 
 
 def test_cooperative_cancel_is_forwarded(rig):

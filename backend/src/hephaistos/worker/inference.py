@@ -285,8 +285,7 @@ def _child_main(adapter_id: str, models_root: Path, options: dict[str, Any], con
     while True:
         message = conn.recv()
         if isinstance(message, _Shutdown):
-            adapter.unload()
-            sys.exit(0)
+            sys.exit(0)  # leaving the process frees all its VRAM, context included: no unload first
         # Library logs must carry the generation the child is serving.
         generation_id: str | None
         attempt_id: str | None
