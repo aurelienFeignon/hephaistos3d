@@ -30,7 +30,6 @@ class Settings(BaseSettings):
     gpu_min_free_vram_mb: int = Field(8192, ge=0)
     gpu_vram_limit_mb: int = Field(0, ge=0)  # 0 = aucun plafond ; ≤ VRAM totale, vérifié au démarrage du worker
     gpu_wait_timeout_seconds: int = Field(0, ge=0)  # 0 = attendre indéfiniment
-    model_idle_unload_seconds: int = Field(900, ge=0)  # 0 = jamais
     dispatch_paused: bool = False
 
     idol_exec_mode: Literal["full", "no_compile", "eager"] = "full"

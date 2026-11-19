@@ -75,18 +75,6 @@ def test_oom_is_a_retryable_failure_and_the_process_survives(process, tmp_path):
     assert process.is_alive()
 
 
-def test_three_consecutive_ooms_end_the_process(process, tmp_path):
-    for name in ("a", "b", "c"):
-        process.generate(request(tmp_path, name, inject_failure="GPU_OOM", fail_at_step=2), timeout_s=60)
-    assert process.wait_exit(timeout_s=30) == EXIT_CUDA_COMPROMISED
-
-
-def test_a_success_resets_the_oom_count(process, tmp_path):
-    for name, failure in (("a", "GPU_OOM"), ("b", "GPU_OOM"), ("c", None), ("d", "GPU_OOM"), ("e", "GPU_OOM")):
-        process.generate(request(tmp_path, name, inject_failure=failure, fail_at_step=2), timeout_s=60)
-    assert process.is_alive()
-
-
 def test_cuda_error_reports_then_exits_75(process, tmp_path):
     outcome = process.generate(request(tmp_path, inject_failure="CUDA_ERROR", fail_at_step=2), timeout_s=60)
     assert isinstance(outcome, Failed)

@@ -1,6 +1,7 @@
 # ADR-0003 — Cycle de vie du modèle : superviseur et processus d'inférence
 
-- **Statut** : Accepté (2026-11-02) — révisé avant acceptation ; option B confirmée
+- **Statut** : Accepté (2026-11-02) — révisé avant acceptation ; option B confirmée.
+  **Remplacé en partie par l'ADR-0015 (2026-11-19)** : l'enfant ne survit plus à une génération.
 - **Date** : 2026-11-02
 
 ## Contexte

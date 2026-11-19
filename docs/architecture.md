@@ -185,7 +185,7 @@ Il ne les arbitre pas :
 - il **contrôle la VRAM libre avant de prendre un job**, jamais après ;
 - il **ne cède jamais le GPU en cours de génération** : une génération démarrée va à son terme,
   sauf annulation explicite par l'utilisateur ;
-- il **ne garde rien au repos** : le processus d'inférence se termine après inactivité.
+- il **ne garde rien au repos** : le processus d'inférence se termine à la fin de chaque génération (ADR-0015).
 
 Idol annonce 7,2 Go de pic. Sur une carte de 12 Go, une génération et une autre charge lourde
 **alternent**, elles ne cohabitent pas. L'opérateur gère cette alternance à la main (§5.5) ou par
@@ -220,7 +220,7 @@ enfant → superviseur `cuda_ready{context_overhead}`, `mem{reserved}`, `stage`,
 | **Attendre** | sinon, le job reste `QUEUED` avec le motif `VRAM_INSUFFICIENT` ; au-delà de `GPU_WAIT_TIMEOUT_SECONDS` (si > 0), il échoue en `GPU_UNAVAILABLE`, non relancé automatiquement ; 0 = attendre indéfiniment |
 | **Plafond** (optionnel) | `GPU_VRAM_LIMIT_MB` > 0 : l'enfant appelle `torch.cuda.set_per_process_memory_fraction(limite/totale)`. Au-delà, l'OOM se produit **dans** Hephaistos (`GPU_OOM`, erreur du job) et n'affecte pas les autres processus |
 | **Pendant la génération** | aucune surveillance de l'usage des autres processus, aucune interruption |
-| **Libérer à l'inactivité** | aucun job depuis `MODEL_IDLE_UNLOAD_SECONDS` → l'enfant est terminé |
+| **Libérer après chaque génération** | quelle qu'en soit l'issue, l'enfant est terminé ; la prise suivante en crée un neuf (ADR-0015) |
 
 - Un job qu'aucun état du GPU ne pourra jamais servir (besoin des paramètres supérieur au plafond,
   ou à la VRAM totale sans plafond) est **refusé à la soumission** (422 `INSUFFICIENT_VRAM_BUDGET`) —
@@ -256,7 +256,7 @@ Trois niveaux, du plus léger au plus radical :
 
 | Geste | Effet sur le GPU | Effet sur l'application |
 |---|---|---|
-| Ne rien faire | worker démarré mais inactif : **0 octet** après `MODEL_IDLE_UNLOAD_SECONDS` (processus d'inférence terminé) | tout fonctionne ; la génération suivante recharge le modèle |
+| Ne rien faire | worker démarré sans génération en cours : **0 octet** (processus d'inférence terminé à la fin de chaque génération) | tout fonctionne ; chaque génération charge son modèle |
 | **Suspendre** la distribution (bouton, `PUT /api/v1/system/dispatch`, `DISPATCH_PAUSED`) | aucune nouvelle génération ; celle en cours va à son terme | soumissions acceptées, elles attendent (« distribution suspendue ») |
 | **Démonter** le worker : `docker compose stop worker` | **0 octet, garanti** : plus aucun processus Hephaistos sur le GPU | interface, API et file restent en ligne ; la génération en cours a `WORKER_SHUTDOWN_GRACE_SECONDS` pour finir, sinon elle est interrompue (`INTERRUPTED`, budget intact) ; les générations attendent (« aucun worker ») ; `docker compose --profile gpu up -d worker` reprend la file |
 
@@ -287,9 +287,9 @@ Implémentation P2.6 : `python -m hephaistos.worker.supervisor` (schéma déjà 
   après 30 s. Limite mémoire supérieure au total : erreur `GPU_VRAM_LIMIT_MB` avant la prise.
   Le contrôle de disponibilité filtre les adaptateurs ; le modèle/version et les paramètres
   figés sont vérifiés avant lancement.
-- Les jobs successifs réutilisent l'enfant chargé. L'inactivité le termine (0 = déchargement
-  automatique désactivé). Si la VRAM libre passe sous le seuil entre deux jobs, l'enfant au
-  repos est aussi terminé avant une prochaine admission ; aucune interruption en cours de job.
+- Chaque job a son propre enfant : il est créé à la prise et terminé à la fin du job, quelle
+  qu'en soit l'issue (ADR-0015). Le chargement du modèle (12 s médian, P5.2) fait donc partie de
+  chaque génération ; aucune interruption en cours de job.
 - `GPU_WAIT_TIMEOUT_SECONDS` clôt seulement des jobs `QUEUED` éligibles pour les adaptateurs
   disponibles, hors suspension, sans créer de tentative. Le délai se mesure depuis `queued_at`.
 - Les événements sont associés à l'ULID de tentative pour ignorer les messages tardifs d'un
@@ -532,7 +532,6 @@ variable. Référence complète et commentée : `.env.example`.
 | `GPU_MIN_FREE_VRAM_MB` | 8192 | ≥ 0 |
 | `GPU_VRAM_LIMIT_MB` | 0 | ≥ 0 (0 = aucun plafond) ; ≤ VRAM totale |
 | `GPU_WAIT_TIMEOUT_SECONDS` | 0 | ≥ 0 (0 = indéfini) |
-| `MODEL_IDLE_UNLOAD_SECONDS` | 900 | ≥ 0 (0 = jamais) |
 | `DISPATCH_PAUSED` | false | booléen |
 | `IDOL_EXEC_MODE` | full (à confirmer par G0.5) | `full` \| `no_compile` \| `eager` |
 | `IDOL_DINOV3_DTYPE` | bf16 | `bf16` \| `fp32` |

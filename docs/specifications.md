@@ -108,7 +108,7 @@ qualité voulue.
 | NF3 | Cohérence stockage | Aucun fichier sans ligne, aucune ligne `COMPLETED` sans artefact, vérifié par la commande de rapprochement |
 | NF4 | Exposition | Avec la configuration par défaut, aucun port n'écoute ailleurs que sur `127.0.0.1` |
 | NF5 | Validation de configuration | Une variable invalide empêche le démarrage avec un message qui la nomme |
-| NF6 | Partage du GPU | Hephaistos ne démarre aucun job tant que la VRAM libre est sous `GPU_MIN_FREE_VRAM_MB` ; avec `GPU_VRAM_LIMIT_MB` > 0, il ne dépasse jamais ce plafond (l'OOM reste dans Hephaistos) ; il rend **toute** sa VRAM (processus d'inférence terminé) après `MODEL_IDLE_UNLOAD_SECONDS`. Limite acceptée : sans plafond, une autre charge qui démarre pendant une génération peut subir un OOM |
+| NF6 | Partage du GPU | Hephaistos ne démarre aucun job tant que la VRAM libre est sous `GPU_MIN_FREE_VRAM_MB` ; avec `GPU_VRAM_LIMIT_MB` > 0, il ne dépasse jamais ce plafond (l'OOM reste dans Hephaistos) ; il rend **toute** sa VRAM (processus d'inférence terminé) à la fin de chaque génération (ADR-0015). Limite acceptée : sans plafond, une autre charge qui démarre pendant une génération peut subir un OOM |
 | NF10 | Contrôle manuel | `docker compose stop worker` ramène l'usage GPU d'Hephaistos à 0 sans interrompre l'interface ; le remontage reprend la file |
 | NF9 | Erreurs CUDA | Après une erreur CUDA, aucune génération ne s'exécute dans le processus qui l'a subie |
 | NF7 | Reproductibilité | Une reconstruction à partir des fichiers verrouillés donne les mêmes versions de dépendances |
