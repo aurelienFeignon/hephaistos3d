@@ -132,29 +132,27 @@ def test_module_does_not_import_torch():
     assert_does_not_import_torch("hephaistos.worker.supervisor")
 
 
-def test_success_reuses_child_and_unloads_after_idle(rig):
-    supervisor, clock, children = rig
+def test_each_generation_loads_and_releases_its_own_child(rig):
+    """ADR-0003 (2026-11-19): no model stays resident between two generations, even with a free GPU."""
+    supervisor, _clock, children = rig
     identifier = submit(supervisor)
     until(supervisor, lambda: get(supervisor.broker, identifier).status == "COMPLETED")
     assert (supervisor.storage.result_dir(identifier) / "splat.ply").read_bytes() == b"complete"
-    second = submit(supervisor)
-    until(supervisor, lambda: get(supervisor.broker, second).status == "COMPLETED")
     assert len(children) == 1
-    assert children[0].calls == 2
-    with Session(supervisor.broker.engine) as session:
-        worker = session.get(Worker, "test-worker")
-        assert worker.state == "READY"
-        assert worker.inference_model_id == "fake"
-        assert worker.gpu["used_bytes"] == 2_000 * MIB
-        assert worker.gpu["utilization_percent"] == 0
-    clock.elapsed += 901
-    supervisor.tick()
     assert not children[0].is_alive()
     with Session(supervisor.broker.engine) as session:
         worker = session.get(Worker, "test-worker")
         assert worker.state == "IDLE"
         assert worker.inference_pid is None
         assert worker.inference_model_id is None
+        assert worker.gpu["used_bytes"] == 2_000 * MIB
+        assert worker.gpu["utilization_percent"] == 0
+    second = submit(supervisor)
+    until(supervisor, lambda: get(supervisor.broker, second).status == "COMPLETED")
+    assert len(children) == 2
+    assert [child.calls for child in children] == [1, 1]
+    assert not children[1].is_alive()
+    assert supervisor.state == "IDLE"
 
 
 def test_low_vram_and_paused_dispatch_never_start_child(rig):

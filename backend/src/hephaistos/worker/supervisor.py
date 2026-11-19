@@ -110,7 +110,6 @@ class Supervisor:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="inference-control")
         self._events: queue.SimpleQueue[tuple[str, ProgressEvent, float]] = queue.SimpleQueue()
         self._started_at = self.clock.now()
-        self._last_job = self.clock.monotonic()
         self._heartbeat_at = self.clock.monotonic()
         self._published_at = float("-inf")
         self._published_state = ""
@@ -257,7 +256,9 @@ class Supervisor:
         self._future = None
         self._phase = ""
         self._cancel_at = None
-        self._last_job = self.clock.monotonic()
+        # One inference process per generation (ADR-0003, 2026-11-19): the shared GPU gets its
+        # memory back as soon as a generation ends, whatever the card or the admission threshold.
+        self._drop_child()
         if lease:
             try:
                 self._cleanup_attempt(lease)
@@ -266,7 +267,7 @@ class Supervisor:
                     "attempt_staging_cleanup_failed",
                     extra=dict(generation_id=lease.generation_id, attempt_id=lease.attempt_id),
                 )
-        self.state = "DEGRADED" if self._degraded else "READY" if self.child else "IDLE"
+        self.state = "DEGRADED" if self._degraded else "IDLE"
         self._publish(force=True)
 
     def _lost(self) -> None:
@@ -494,12 +495,6 @@ class Supervisor:
             # An explicit persisted resume starts a fresh crash window.
             self._degraded = False
             self._deaths = []
-        if (
-            self.child
-            and self.settings.model_idle_unload_seconds > 0
-            and self.clock.monotonic() - self._last_job >= self.settings.model_idle_unload_seconds
-        ):
-            self._drop_child()
         if self.clock.monotonic() < self._gpu_retry_at:
             self._publish()
             return
@@ -529,9 +524,6 @@ class Supervisor:
             self.broker.expire_gpu_wait(
                 {key for key, value in self.installations.items() if value.available}, now=self.clock.now()
             )
-            # Release resident memory before another admission check, never mid-job.
-            if self.child:
-                self._drop_child()
         else:
             available = {key for key, value in self.installations.items() if value.available}
             lease = self.broker.claim(
@@ -560,26 +552,19 @@ class Supervisor:
                     )
                     self._release()
                     return
-                if self.child_model != lease.model_id:
-                    self._drop_child()
-                if self.child is None:
-                    self.child = self.process_factory(lease.model_id)
-                    self.child_model = lease.model_id
-                    self.child_started_at = self.clock.now()
-                    self.state = "LOADING"
-                    self._journal("model_loading")
-                    self._future = self._executor.submit(
-                        self.child.start, timeout_s=float(self.settings.job_timeout_seconds)
-                    )
-                    self._phase = "loading"
-                else:
-                    # Reuse the same launch path after an already completed load.
-                    self._future = Future()
-                    self._future.set_result(0.0)
-                    self._phase = "loading"
+                # No child survives a generation (`_release`), so every claim loads its model.
+                self.child = self.process_factory(lease.model_id)
+                self.child_model = lease.model_id
+                self.child_started_at = self.clock.now()
+                self.state = "LOADING"
+                self._journal("model_loading")
+                self._future = self._executor.submit(
+                    self.child.start, timeout_s=float(self.settings.job_timeout_seconds)
+                )
+                self._phase = "loading"
                 self._publish(force=True)
                 return
-            self.state = "READY" if self.child else "IDLE"
+            self.state = "IDLE"
         self._publish()
 
     def close(self) -> None:

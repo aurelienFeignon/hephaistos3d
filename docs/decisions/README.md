@@ -4,7 +4,7 @@
 |---|---|---|
 | [0001](0001-structure-du-depot-et-scaffolding.md) | Structure du dépôt et scaffolding | Accepté (2026-11-02) |
 | [0002](0002-file-d-attente-en-base.md) | File d'attente portée par la base de données | Accepté (2026-11-02, D1) |
-| [0003](0003-cycle-de-vie-du-modele-en-vram.md) | Cycle de vie du modèle : superviseur et processus d'inférence | Accepté (2026-11-02) — révisé avant acceptation ; option B confirmée |
+| [0003](0003-cycle-de-vie-du-modele-en-vram.md) | Cycle de vie du modèle : superviseur et processus d'inférence | Accepté (2026-11-02) — révisé avant acceptation ; option B confirmée ; remplacé en partie par 0015 |
 | [0004](0004-interface-d-adaptateur-et-registre.md) | Interface d'adaptateur et registre | Accepté (2026-11-02) |
 | [0005](0005-progression-reelle-par-instrumentation.md) | Progression et annulation par hooks de module PyTorch | Accepté (2026-11-02) — révisé avant acceptation (ajustement 6) |
 | [0006](0006-visualiseur-spark.md) | Visualiseur Gaussian Splat : Spark | Accepté (2026-11-02) |
@@ -16,6 +16,7 @@
 | [0012](0012-modes-d-execution-idol.md) | Modes d'exécution d'Idol | Accepté (2026-11-02, ajustement 5) ; défaut fixé après G0.5 |
 | [0013](0013-erreurs-non-classees-non-relancees.md) | Erreurs non classées : diagnostic avant relance | Accepté (2026-11-02, D8) |
 | [0014](0014-valeurs-des-preselections.md) | Valeurs des préréglages d'Idol | Accepté (2026-11-03, P1.10) |
+| [0015](0015-un-processus-d-inference-par-generation.md) | Un processus d'inférence par génération | Accepté (2026-11-19) |
 
 Format : contexte, décision, conséquences, alternatives. Un ADR accepté ne se modifie plus : on en écrit un nouveau qui le remplace. Les ADR 0003 et 0005 ont été révisés **avant** leur acceptation ; l'ADR 0011 a été réécrit avant tout commit, le 2026-11-03, quand la préemption essayée en P0 a été abandonnée.
 

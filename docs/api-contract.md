@@ -102,8 +102,8 @@ Précisions de lecture (P2.8) :
 Diagnostics GPU (P5.1), lus sans CUDA ni sonde dans l'API :
 
 - `workers[].model` dit quel modèle le processus d'inférence du worker tient : `LOADING` pendant
-  le chargement, `RESIDENT` ensuite, jusqu'au déchargement après `MODEL_IDLE_UNLOAD_SECONDS`
-  d'inactivité. `since` est le démarrage de ce processus. `null` : aucun processus d'inférence.
+  le chargement, `RESIDENT` ensuite, jusqu'à la fin de la génération, qui termine le processus
+  (ADR-0015). `since` est le démarrage de ce processus. `null` : aucun processus d'inférence.
 - `workers[].gpu.vram_used_bytes` et `utilization_percent` viennent du dernier relevé NVML du
   worker : ils portent sur **tout le périphérique**, pas sur Hephaistos seul (le GPU est partagé).
   `null` sans relevé.

@@ -89,9 +89,9 @@ Champs utiles au diagnostic (contrat : [api-contract.md](api-contract.md) §1) :
 | Champ | Lecture |
 |---|---|
 | `dispatch.paused`, `paused_by` | distribution suspendue, et par qui (`user`, `config`, `system`) |
-| `workers[].state` | `IDLE`, `LOADING`, `READY`, `BUSY`, `WAITING_GPU`, `NO_GPU`, `DEGRADED` |
+| `workers[].state` | `IDLE`, `LOADING`, `BUSY`, `WAITING_GPU`, `NO_GPU`, `DEGRADED` (`READY` n'est plus produit, ADR-0015) |
 | `workers[].waiting_reason` | `VRAM_INSUFFICIENT` ou `DISPATCH_PAUSED` |
-| `workers[].model` | modèle chargé (`LOADING`, `RESIDENT`) ; `null` une fois déchargé |
+| `workers[].model` | modèle chargé pendant une génération (`LOADING`, `RESIDENT`) ; `null` entre deux générations |
 | `workers[].gpu` | VRAM libre, utilisée et utilisation, pour **tout** le périphérique |
 | `gpu.last_error` | dernière tentative en `CUDA_ERROR` ou `GPU_OOM` (n'expire pas : lire `at`) |
 | `storage` | octets des résultats, espace libre |

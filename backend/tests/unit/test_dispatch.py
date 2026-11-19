@@ -179,7 +179,7 @@ def test_resume_reactivates_degraded_supervisor(client, rig):
     supervisor.process_factory = lambda model: Child()
     identifier = submit(supervisor)
     until(supervisor, lambda: get(supervisor.broker, identifier).status == "COMPLETED")
-    assert supervisor.state == "READY"
+    assert supervisor.state == "IDLE"
 
 
 def test_openapi_validation_response_matches_problem_content_type(client):
